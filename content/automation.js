@@ -4,35 +4,16 @@
   if (window.__HMH_BATTLE_AUTOMATION__) return;
   window.__HMH_BATTLE_AUTOMATION__ = true;
 
-  const AUTOMATION_KEY = 'hmh_automation_v1';
-  const BOT_STATUS_KEY = 'hmh_bot_status_v1';
-  const BOT_RUNTIME_KEY = 'hmh_bot_runtime_v1';
-  const REAPER_PROFILE_KEY = 'hmh_reaper_profile_v1';
-
-  const DEFAULT_AUTOMATION = {
-    running: false,
-    collectResources: true,
-    resourceMode: 'profit',
-    reaperRank: 'Новичок',
-    solveCaptcha: false,
-    captchaApiToken: '',
-    captureFairy: false,
-    selectedFairy: null
-  };
-
-  function normalizeAutomation(raw = {}, detectedRank = '') {
-    const collectResources = Object.prototype.hasOwnProperty.call(raw, 'collectResources') ? !!raw.collectResources : raw.autoFairy !== false;
-    return {
-      running: !!raw.running && collectResources,
-      collectResources,
-      resourceMode: raw.resourceMode === 'experience' ? 'experience' : 'profit',
-      reaperRank: String(raw.reaperRank || detectedRank || 'Новичок'),
-      solveCaptcha: !!raw.solveCaptcha,
-      captchaApiToken: String(raw.captchaApiToken || ''),
-      captureFairy: !!raw.captureFairy,
-      selectedFairy: raw.selectedFairy || null
-    };
-  }
+  const {
+    STORAGE_KEYS,
+    DEFAULT_AUTOMATION,
+    normalizeAutomation,
+    mapApiRunesToSiteRunes
+  } = window.HMH_SHARED;
+  const AUTOMATION_KEY = STORAGE_KEYS.automation;
+  const BOT_STATUS_KEY = STORAGE_KEYS.botStatus;
+  const BOT_RUNTIME_KEY = STORAGE_KEYS.botRuntime;
+  const REAPER_PROFILE_KEY = STORAGE_KEYS.reaperProfile;
 
   const DEFAULT_RUNTIME = {
     fairyWaitUntil: 0,
@@ -116,6 +97,11 @@
   const DOCUMENT_STARTED_AT = Date.now();
   let captchaSolveInFlight = false;
   let lastCaptchaDecode = null;
+  const DEBUG_LOGS = false;
+
+  function debugLog(...args) {
+    if (DEBUG_LOGS) console.log(...args);
+  }
 
   function normalize(value) {
     return String(value || '')
@@ -252,15 +238,6 @@
     return canvas.toDataURL('image/png');
   }
 
-  function mapApiRunesToSiteRunes(apiRunes) {
-    if (!Array.isArray(apiRunes) || apiRunes.length === 0) throw new Error('empty-runes');
-    const mapped = apiRunes.map((value) => Number(value) - 1);
-    if (mapped.some((value) => !Number.isInteger(value) || value < 0 || value > 8)) {
-      throw new Error('mapped-rune-range');
-    }
-    return mapped;
-  }
-
   async function requestCaptchaDecode(imageDataUrl, token) {
     const response = await chrome.runtime.sendMessage({
       type: 'HMH_CAPTCHA_DECODE',
@@ -268,8 +245,7 @@
       token
     });
 
-    // Debug only: response contains no API token or request headers.
-    console.log('[Haddan Market Helper] CAPTCHA API response received by content script:', response);
+    debugLog('[Haddan Market Helper] CAPTCHA API response received by content script:', response);
 
     if (!response?.ok) throw new Error(String(response?.error || 'captcha-api-failed'));
     if (!Array.isArray(response.runes) || response.runes.length === 0) throw new Error('captcha-api-empty-runes');
@@ -320,7 +296,7 @@ async function applyOneRune(rune, stateInput) {
     return false;
   }
 
-  console.log('State changed:', before, '->', stateInput.value);
+  debugLog('State changed:', before, '->', stateInput.value);
   return true;
 }
 
@@ -363,9 +339,9 @@ function submitBattleForm() {
     return false;
   }
 
-  console.log('submitButton:', submitButton);
-  console.log('text:', submitButton?.textContent.trim());
-  console.log('type:', submitButton?.type);
+  debugLog('submitButton:', submitButton);
+  debugLog('text:', submitButton?.textContent.trim());
+  debugLog('type:', submitButton?.type);
 
   form.requestSubmit(submitButton);
   return true;
@@ -374,12 +350,12 @@ function submitBattleForm() {
 const delay = ms => new Promise(res => setTimeout(res, ms));
 
 async function applyCaptchaResultToCurrentPage(siteRunes) {
-  console.log('siteRunes:', siteRunes);
+  debugLog('siteRunes:', siteRunes);
 
   const runes = [];
   for (const value of siteRunes) {
     const rune = document.querySelector(`.captcha_rune[value="${value}"]`);
-    console.log(value, rune);
+    debugLog(value, rune);
     if (!rune) {
       console.error('Rune element missing:', value);
       return false;
@@ -395,7 +371,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
   await delay(800);
 
   const ok = await applyRunes(runes);
-  console.log('applyRunes result:', ok);
+  debugLog('applyRunes result:', ok);
   if (!ok) return false;
 
   await setCaptchaStatus(
@@ -427,10 +403,10 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
 
       await setCaptchaStatus('api', 'CAPTCHA: отправляю изображение в API…', { progress: 30 });
       const apiRunes = await requestCaptchaDecode(beforeImage, token);
-      console.log('[Haddan Market Helper] CAPTCHA API runes:', apiRunes);
+      debugLog('[Haddan Market Helper] CAPTCHA API runes:', apiRunes);
 
       const siteRunes = mapApiRunesToSiteRunes(apiRunes);
-      console.log('[Haddan Market Helper] CAPTCHA mapped siteRunes:', siteRunes);
+      debugLog('[Haddan Market Helper] CAPTCHA mapped siteRunes:', siteRunes);
       await setCaptchaStatus(
         'decoded',
         `CAPTCHA: API распознал ${siteRunes.length} рун(ы)`,

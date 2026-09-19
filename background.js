@@ -2,6 +2,11 @@
 
 let creatingOffscreen = null;
 const captchaAlertByTab = new Map();
+const DEBUG_LOGS = false;
+
+function debugLog(...args) {
+  if (DEBUG_LOGS) console.log(...args);
+}
 
 async function hasOffscreenDocument() {
   if (!chrome.runtime.getContexts) return false;
@@ -86,7 +91,7 @@ async function decodeCaptchaImage(imageDataUrl, token) {
     });
 
     const rawBody = await response.text();
-    console.log('[Haddan Market Helper] CAPTCHA API raw response:', {
+    debugLog('[Haddan Market Helper] CAPTCHA API raw response:', {
       status: response.status,
       ok: response.ok,
       body: rawBody
@@ -101,7 +106,7 @@ async function decodeCaptchaImage(imageDataUrl, token) {
       throw new Error('invalid-json');
     }
 
-    console.log('[Haddan Market Helper] CAPTCHA API parsed response:', data);
+    debugLog('[Haddan Market Helper] CAPTCHA API parsed response:', data);
     return validateCaptchaDecodeResponse(data);
   } catch (error) {
     if (error?.name === 'AbortError') throw new Error('api-timeout');

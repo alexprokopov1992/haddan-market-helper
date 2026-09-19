@@ -1,0 +1,13 @@
+{
+  "name": "haddan-market-helper",
+  "version": "0.6.38",
+  "private": true,
+  "description": "Chrome MV3 helper for Haddan market and Poliana automation.",
+  "type": "commonjs",
+  "scripts": {
+    "check": "node scripts/check-js.js",
+    "test": "node --test test/*.test.js",
+    "verify": "npm run check && npm test",
+    "zip": "powershell -ExecutionPolicy Bypass -File scripts/package-extension.ps1"
+  }
+}

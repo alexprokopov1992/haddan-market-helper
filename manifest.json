@@ -27,6 +27,7 @@
         "https://ru.haddan.ru/*"
       ],
       "js": [
+        "content/shared.js",
         "content/content.js"
       ],
       "css": [
@@ -42,6 +43,7 @@
         "https://ru.haddan.ru/*"
       ],
       "js": [
+        "content/shared.js",
         "content/fairy.js",
         "content/automation.js"
       ],

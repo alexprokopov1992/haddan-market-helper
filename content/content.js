@@ -4,77 +4,32 @@
   if (window.top !== window) return;
   if (document.getElementById('hmh-root')) return;
 
-  const RESOURCES = [
-    { id: '1044', name: 'Мухожор' },
-    { id: '5900', name: 'Подсолнух' },
-    { id: '5901', name: 'Капустница' },
-    { id: '1045', name: 'Мандрагора' },
-    { id: '5902', name: 'Зеленая Массивка' },
-    { id: '5903', name: 'Колючник Черный' },
-    { id: '5904', name: 'Гертаниум' }
-  ];
-
-  const REAPER_RANKS = [
-    'Новичок',
-    'Косарь',
-    'Травник',
-    'Гербалист',
-    'Опытный Травник',
-    'Опытный Гербологист',
-    'Хранитель Полян',
-    'Мастер',
-    'Грандмастер',
-    'Магистр',
-    'Великий Магистр'
-  ];
-
-  const STORAGE_KEY = 'hmh_market_v1';
-  const HISTORY_KEY = 'hmh_history_v1';
-  const POSITION_KEY = 'hmh_panel_position_v1';
-  const AUTOMATION_KEY = 'hmh_automation_v1';
-  const BOT_STATUS_KEY = 'hmh_bot_status_v1';
-  const BOT_RUNTIME_KEY = 'hmh_bot_runtime_v1';
-  const FAIRY_OFFERS_KEY = 'hmh_fairy_offers_v1';
-  const REAPER_EXP_KEY = 'hmh_reaper_exp_v1';
-  const REAPER_PROFILE_KEY = 'hmh_reaper_profile_v1';
-  const MAX_HISTORY_PER_RESOURCE = 100;
-  const MAX_REAPER_EXP = 10;
-
-  const DEFAULT_AUTOMATION = {
-    running: false,
-    collectResources: true,
-    resourceMode: 'profit',
-    reaperRank: 'Новичок',
-    solveCaptcha: false,
-    captchaApiToken: '',
-    captureFairy: false,
-    selectedFairy: null
-  };
-
-  function canonicalReaperRank(value) {
-    const key = normalizeText(value).toLowerCase();
-    return REAPER_RANKS.find((rank) => rank.toLowerCase() === key) || '';
-  }
-
-  function normalizeAutomation(raw = {}, detectedRank = '') {
-    const migratedCollectResources = Object.prototype.hasOwnProperty.call(raw, 'collectResources')
-      ? !!raw.collectResources
-      : raw.autoFairy !== false;
-    const rank = canonicalReaperRank(raw.reaperRank) || canonicalReaperRank(detectedRank) || 'Новичок';
-    return {
-      // «Собирать ресурсы» is the master switch for the whole Poliana cycle.
-      // Keeping running=true while it is off used to let background frames keep
-      // clicking Fairy/navigation and looked like the page was constantly refreshing.
-      running: !!raw.running && migratedCollectResources,
-      collectResources: migratedCollectResources,
-      resourceMode: raw.resourceMode === 'experience' ? 'experience' : 'profit',
-      reaperRank: rank,
-      solveCaptcha: !!raw.solveCaptcha,
-      captchaApiToken: String(raw.captchaApiToken || ''),
-      captureFairy: !!raw.captureFairy,
-      selectedFairy: raw.selectedFairy || null
-    };
-  }
+  const {
+    STORAGE_KEYS,
+    RESOURCES,
+    REAPER_RANKS,
+    DEFAULT_AUTOMATION,
+    MAX_HISTORY_PER_RESOURCE,
+    MAX_REAPER_EXP,
+    canonicalReaperRank,
+    normalizeAutomation,
+    normalizeText,
+    validReaperExp,
+    sampleWeight,
+    weightedMedian,
+    parseNumber,
+    parseLimit,
+    normalizeMarketOffers
+  } = window.HMH_SHARED;
+  const STORAGE_KEY = STORAGE_KEYS.market;
+  const HISTORY_KEY = STORAGE_KEYS.history;
+  const POSITION_KEY = STORAGE_KEYS.panelPosition;
+  const AUTOMATION_KEY = STORAGE_KEYS.automation;
+  const BOT_STATUS_KEY = STORAGE_KEYS.botStatus;
+  const BOT_RUNTIME_KEY = STORAGE_KEYS.botRuntime;
+  const FAIRY_OFFERS_KEY = STORAGE_KEYS.fairyOffers;
+  const REAPER_EXP_KEY = STORAGE_KEYS.reaperExp;
+  const REAPER_PROFILE_KEY = STORAGE_KEYS.reaperProfile;
 
   let automation = { ...DEFAULT_AUTOMATION };
   let botStatus = { text: 'Остановлен', ts: 0 };
@@ -545,23 +500,6 @@
     }
   });
 
-  function parseNumber(text) {
-    if (text == null) return null;
-    const normalized = String(text)
-      .replace(/\u00a0/g, '')
-      .replace(/\s+/g, '')
-      .replace(',', '.');
-    if (!normalized || normalized.toLowerCase() === 'нет') return null;
-    const value = Number(normalized);
-    return Number.isFinite(value) ? value : null;
-  }
-
-  function parseLimit(text) {
-    const trimmed = String(text ?? '').trim().toLowerCase();
-    if (!trimmed || trimmed === 'нет') return null; // null = нет числового лимита
-    return parseNumber(trimmed);
-  }
-
   function detectMoneyLevel(row) {
     const img = row.querySelector('td:first-child img');
     const src = (img?.getAttribute('src') || '').toLowerCase();
@@ -577,14 +515,13 @@
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const rows = [...doc.querySelectorAll('#mainTableBody > tr')];
 
-    const offers = [];
+    const rawOffers = [];
 
     for (const row of rows) {
       const cells = row.querySelectorAll(':scope > td');
       if (cells.length < 7) continue;
 
       const moneyLevel = detectMoneyLevel(row);
-      if (moneyLevel === 'copper') continue; // пользовательское правило: полностью игнорировать
 
       const shopLink = cells[1].querySelector('a');
       const shopName = (shopLink?.textContent || cells[1].textContent || '').replace(/\s+/g, ' ').trim();
@@ -595,11 +532,7 @@
       const sellPrice = parseNumber(cells[5].textContent) ?? 0;
       const buyPrice = parseNumber(cells[6].textContent) ?? 0;
 
-      if (buyPrice <= 0) continue;
-
-      offers.push({
-        resourceId: resource.id,
-        resourceName: resource.name,
+      rawOffers.push({
         itemName,
         shopName,
         shopHref,
@@ -611,13 +544,7 @@
       });
     }
 
-    offers.sort((a, b) => {
-      if (b.buyPrice !== a.buyPrice) return b.buyPrice - a.buyPrice;
-      const moneyRank = { gold: 2, silver: 1, unknown: 0 };
-      return (moneyRank[b.moneyLevel] ?? 0) - (moneyRank[a.moneyLevel] ?? 0);
-    });
-
-    return offers;
+    return normalizeMarketOffers(rawOffers, resource);
   }
 
   async function fetchResource(resource) {
@@ -724,43 +651,8 @@
     return Number(value).toLocaleString('ru-RU', { maximumFractionDigits });
   }
 
-  function normalizeText(value) {
-    return String(value || '').replace(/\u00a0/g, ' ').replace(/[\t\r]+/g, ' ').replace(/ {2,}/g, ' ').trim();
-  }
-
   function profileRankKey() {
     return normalizeText(automation.reaperRank || reaperProfile?.rank || '').toLowerCase() || 'unknown';
-  }
-
-  function median(values) {
-    const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
-    if (!sorted.length) return null;
-    const mid = Math.floor(sorted.length / 2);
-    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-  }
-
-  function validReaperExp(value) {
-    const exp = Number(value);
-    return Number.isFinite(exp) && exp >= 0 && exp <= MAX_REAPER_EXP ? exp : null;
-  }
-
-  function sampleWeight(sample) {
-    const count = Number(sample?.count);
-    return Number.isFinite(count) && count > 0 ? Math.max(1, Math.floor(count)) : 1;
-  }
-
-  function weightedMedian(entries) {
-    const sorted = entries
-      .filter((entry) => Number.isFinite(entry?.value) && Number.isFinite(entry?.weight) && entry.weight > 0)
-      .sort((a, b) => a.value - b.value);
-    if (!sorted.length) return null;
-    const totalWeight = sorted.reduce((sum, entry) => sum + entry.weight, 0);
-    let acc = 0;
-    for (const entry of sorted) {
-      acc += entry.weight;
-      if (acc >= totalWeight / 2) return entry.value;
-    }
-    return sorted[sorted.length - 1].value;
   }
 
   function exactExperienceSummary(samples, quantity) {

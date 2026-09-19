@@ -4,59 +4,27 @@
   if (window.__HMH_FAIRY_HELPER__) return;
   window.__HMH_FAIRY_HELPER__ = true;
 
-  const STORAGE_KEY = 'hmh_market_v1';
-  const AUTOMATION_KEY = 'hmh_automation_v1';
-  const BOT_STATUS_KEY = 'hmh_bot_status_v1';
-  const BOT_RUNTIME_KEY = 'hmh_bot_runtime_v1';
-  const FAIRY_OFFERS_KEY = 'hmh_fairy_offers_v1';
-  const REAPER_EXP_KEY = 'hmh_reaper_exp_v1';
-  const REAPER_PROFILE_KEY = 'hmh_reaper_profile_v1';
+  const {
+    STORAGE_KEYS,
+    RESOURCES,
+    DEFAULT_AUTOMATION,
+    MAX_REAPER_EXP,
+    normalizeText,
+    normalizeAutomation,
+    validReaperExp,
+    sampleWeight,
+    weightedMedian
+  } = window.HMH_SHARED;
+  const STORAGE_KEY = STORAGE_KEYS.market;
+  const AUTOMATION_KEY = STORAGE_KEYS.automation;
+  const BOT_STATUS_KEY = STORAGE_KEYS.botStatus;
+  const BOT_RUNTIME_KEY = STORAGE_KEYS.botRuntime;
+  const FAIRY_OFFERS_KEY = STORAGE_KEYS.fairyOffers;
+  const REAPER_EXP_KEY = STORAGE_KEYS.reaperExp;
+  const REAPER_PROFILE_KEY = STORAGE_KEYS.reaperProfile;
   const FAIRY_MARKER_RE = /(фея\s+поляны|могу\s+дать\s+тебе\s+следующие\s+травы|выбери\s+себе)/i;
   const DOCUMENT_STARTED_AT = Date.now();
-  const MAX_REAPER_EXP = 10;
   const MAX_REAPER_EXP_RECORDS = 5000;
-
-  const RESOURCES = [
-    { id: '1044', name: 'Мухожор', aliases: ['Мухожор'] },
-    { id: '5900', name: 'Подсолнух', aliases: ['Подсолнух'] },
-    { id: '5901', name: 'Капустница', aliases: ['Капустница'] },
-    { id: '1045', name: 'Мандрагора', aliases: ['Мандрагора'] },
-    { id: '5902', name: 'Зеленая Массивка', aliases: ['Зеленая Массивка'] },
-    { id: '5903', name: 'Колючник Черный', aliases: ['Колючник Черный', 'Черный Колючник'] },
-    { id: '5904', name: 'Гертаниум', aliases: ['Гертаниум'] }
-  ];
-
-  const REAPER_RANKS = [
-    'Новичок', 'Косарь', 'Травник', 'Гербалист', 'Опытный Травник',
-    'Опытный Гербологист', 'Хранитель Полян', 'Мастер', 'Грандмастер',
-    'Магистр', 'Великий Магистр'
-  ];
-
-  const DEFAULT_AUTOMATION = {
-    running: false,
-    collectResources: true,
-    resourceMode: 'profit',
-    reaperRank: 'Новичок',
-    captureFairy: false,
-    selectedFairy: null
-  };
-
-  function canonicalReaperRank(value) {
-    const key = normalizeText(value).toLowerCase();
-    return REAPER_RANKS.find((rank) => rank.toLowerCase() === key) || '';
-  }
-
-  function normalizeAutomation(raw = {}, detectedRank = '') {
-    const collectResources = Object.prototype.hasOwnProperty.call(raw, 'collectResources') ? !!raw.collectResources : raw.autoFairy !== false;
-    return {
-      running: !!raw.running && collectResources,
-      collectResources,
-      resourceMode: raw.resourceMode === 'experience' ? 'experience' : 'profit',
-      reaperRank: canonicalReaperRank(raw.reaperRank) || canonicalReaperRank(detectedRank) || 'Новичок',
-      captureFairy: !!raw.captureFairy,
-      selectedFairy: raw.selectedFairy || null
-    };
-  }
   let automation = { ...DEFAULT_AUTOMATION };
   let runtime = { pauseReason: '' };
   let market = { updatedAt: null, data: {} };
@@ -78,14 +46,6 @@
 
   function escapeRegExp(value) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-
-  function normalizeText(value) {
-    return String(value || '')
-      .replace(/\u00a0/g, ' ')
-      .replace(/[\t\r]+/g, ' ')
-      .replace(/ {2,}/g, ' ')
-      .trim();
   }
 
   function frameContextKey() {
@@ -162,36 +122,6 @@
     return matching;
   }
 
-  function median(values) {
-    const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
-    if (!sorted.length) return null;
-    const mid = Math.floor(sorted.length / 2);
-    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-  }
-
-  function validReaperExp(value) {
-    const exp = Number(value);
-    return Number.isFinite(exp) && exp >= 0 && exp <= MAX_REAPER_EXP ? exp : null;
-  }
-
-  function sampleWeight(sample) {
-    const count = Number(sample?.count);
-    return Number.isFinite(count) && count > 0 ? Math.max(1, Math.floor(count)) : 1;
-  }
-
-  function weightedMedian(entries) {
-    const sorted = entries
-      .filter((entry) => Number.isFinite(entry?.value) && Number.isFinite(entry?.weight) && entry.weight > 0)
-      .sort((a, b) => a.value - b.value);
-    if (!sorted.length) return null;
-    const totalWeight = sorted.reduce((sum, entry) => sum + entry.weight, 0);
-    let acc = 0;
-    for (const entry of sorted) {
-      acc += entry.weight;
-      if (acc >= totalWeight / 2) return entry.value;
-    }
-    return sorted[sorted.length - 1].value;
-  }
 
   function exactExperienceSummary(samples, quantity) {
     const counts = new Map();
