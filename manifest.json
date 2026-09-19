@@ -1,0 +1,55 @@
+{
+  "manifest_version": 3,
+  "name": "Haddan Market Helper",
+  "version": "0.6.38",
+  "description": "Помощник по рынку Haddan: безопасный автосбор через Фею, выбор по выгоде/опыту и накопление карты количества→опыт Жнеца без вмешательства в игровые ссылки. Бой проводит штатный автобой Haddan.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "https://haddan.ru/*",
+    "https://www.haddan.ru/*",
+    "https://ru.haddan.ru/*",
+    "https://runes.spravahub.com.ua/*"
+  ],
+  "action": {
+    "default_title": "Haddan Market Helper",
+    "default_popup": "popup/popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://haddan.ru/*",
+        "https://www.haddan.ru/*",
+        "https://ru.haddan.ru/*"
+      ],
+      "js": [
+        "content/content.js"
+      ],
+      "css": [
+        "content/content.css"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://haddan.ru/*",
+        "https://www.haddan.ru/*",
+        "https://ru.haddan.ru/*"
+      ],
+      "js": [
+        "content/fairy.js",
+        "content/automation.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

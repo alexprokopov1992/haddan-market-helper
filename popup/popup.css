@@ -1,0 +1,20 @@
+body {
+  width: 260px;
+  margin: 0;
+  padding: 12px;
+  font-family: Arial, Helvetica, sans-serif;
+  background: #efe1bd;
+  color: #2b2114;
+}
+h1 { font-size: 15px; margin: 0 0 10px; }
+button {
+  width: 100%;
+  margin: 4px 0;
+  padding: 8px;
+  border: 1px solid #6a5129;
+  background: #8e7147;
+  color: white;
+  cursor: pointer;
+}
+button:hover { background: #755a35; }
+#status { margin-top: 8px; font-size: 11px; min-height: 14px; }
