@@ -1,4 +1,24 @@
+## 0.6.58
+
+- Low-rank reward parser now accepts both `1 опыт Жнеца` and plural `N опыта Жнеца`.
+- A live standalone `Спасибо.` is now a terminal action by itself: it is auto-closed even if `pendingReward` or the XP sample was lost.
+- Added a short cross-frame acknowledgement lock so idle frames cannot overwrite the state with `Иду к Фее` while `Спасибо.` is being closed.
+- The 90-second generic reward watchdog no longer clears a transaction while an exact native `Спасибо.` is still visible; the dedicated 30-second ACK fallback owns that state.
+
+## 0.6.57
+
+- Added a 5-second pre-click watchdog for Fairy resource choices.
+- If the best resource was calculated and shown in the UI but the delayed native click was abandoned before `pendingReward` could be armed, the exact live choice document is rescanned and retried instead of remaining open indefinitely.
+- The existing 15-second post-click watchdog remains responsible for cases where `pendingReward` was armed but Haddan did not navigate to the reward page.
+
 # Changelog
+
+## 0.6.56
+
+- Fixed Fairy resource selection for low Жнец ranks where Haddan can offer only one resource (for example `Новичок` -> one `Мухожор` choice).
+- The Fairy parser no longer requires two offers/two resource links unconditionally.
+- A one-resource offer is accepted only in the real `/room/func/qa.php` choice document, preserving protection against mirrored/stale Fairy text in the room chat/history frame.
+- Single-resource dialogs now receive the normal price/XP annotation and automatic selection.
 
 ## 0.6.55
 

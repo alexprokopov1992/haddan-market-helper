@@ -640,8 +640,8 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
   function professionalExpFromRewardText(text = bodyText()) {
     const normalized = normalize(text);
     const patterns = [
-      /(?:ты\s+)?получа(?:ешь|ешься|л|ла|ете|ют|ется)\s*\+?(\d+)\s+опыта\s+жнеца/i,
-      /\+?(\d+)\s+опыта\s+жнеца/i,
+      /(?:ты\s+)?получа(?:ешь|ешься|л|ла|ете|ют|ется)\s*\+?(\d+)\s+опыт(?:а)?\s+жнеца/i,
+      /\+?(\d+)\s+опыт(?:а)?\s+жнеца/i,
       /опыт(?:а)?\s+жнеца\s*[:+—-]?\s*(\d+)/i
     ];
     for (const re of patterns) {
@@ -658,7 +658,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
 
   function pendingRewardObservation(text = bodyText()) {
     const normalized = normalize(text);
-    const match = normalized.match(/я\s+дам\s+тебе\s+(\d+)\s*(?:ед\.?|шт\.?)\s+(.+?)\.\s*ты\s+получа(?:ешь|ете)\s*\+?(\d+)\s+опыта\s+жнеца/i);
+    const match = normalized.match(/я\s+дам\s+тебе\s+(\d+)\s*(?:ед\.?|шт\.?)\s+(.+?)\.\s*ты\s+получа(?:ешь|ете)\s*\+?(\d+)\s+опыт(?:а)?\s+жнеца/i);
     if (!match) return null;
     const quantity = Number(match[1]);
     const resourceName = normalize(match[2]);
@@ -782,6 +782,27 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     // Resource confirmation can render as a minimal page containing only "Спасибо.".
     // Do not depend on pendingReward or on the preceding reward sentence being present.
     return findQaAction(9000, /^спасибо[.!]?$/i);
+  }
+
+  function findStandaloneThanksAction() {
+    const action = findExactThanksAction();
+    if (!action) return null;
+
+    // Normal case: the acknowledgement lives in its own qa.php document.
+    if (/\/room\/func\/qa\.php$/i.test(location.pathname)) return action;
+
+    // Some Haddan layouts keep the tiny dialogue in a wrapper document instead.
+    // Accept that form only when this frame is structurally minimal: a single
+    // visible qa.php action and almost no other text. This avoids treating an old
+    // clickable-looking echo in the room/chat frame as a live acknowledgement.
+    const visibleQaActions = [...document.querySelectorAll('a[href*="qa.php"]')]
+      .filter((el) => visible(el) && enabled(el));
+    const text = normalize(bodyText());
+    if (visibleQaActions.length === 1 && text.length <= 240 && /(^|\s)спасибо[.!]?(\s|$)/i.test(text)) {
+      return action;
+    }
+
+    return null;
   }
 
   function rewardDocumentState() {
@@ -1449,40 +1470,38 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       await saveRuntime({ dialogInitRecoveryUntil: 0 });
     }
 
-    // Recovery for the exact regression visible in v0.6.47-v0.6.51: an older
-    // post-XP watchdog could clear pendingReward while the real qa.php frame was
-    // still sitting on the native «Спасибо.» link. Another idle frame then tried
-    // to open Fairy again and the global status became «Иду к Фее», even though
-    // the acknowledgement dialog was visibly still open.
-    //
-    // If the transaction lock is already gone, only auto-close an orphan
-    // «Спасибо.» when there is very recent captured reward evidence. Requiring a
-    // real qa.php document + exact id=9000 label + recent XP sample prevents an
-    // unrelated/stale chat link from being clicked.
-    if (!runtime.pendingReward && /\/room\/func\/qa\.php$/i.test(location.pathname)) {
-      const orphanThanks = findExactThanksAction();
-      const capturedAt = Number(runtime.lastRewardCapturedAt || 0);
-      const captureAge = capturedAt ? now - capturedAt : Infinity;
-      const capturedExp = Number(runtime.lastRewardCapturedExp);
-      const capturedQty = Number(runtime.lastRewardCapturedQuantity || 0);
-      const recentCapturedReward = capturedAt > 0 && captureAge >= 0 &&
-        captureAge <= ORPHAN_THANKS_RECOVERY_WINDOW_MS &&
-        Number.isFinite(capturedExp) && capturedQty > 0;
-
-      if (orphanThanks && recentCapturedReward) {
-        if (now - lastOrphanThanksClickAt >= 1500) {
-          lastOrphanThanksClickAt = now;
-          await setStatus('Фея: найдено незакрытое «Спасибо» после сохраненной награды · закрываю');
-          const target = findExactThanksAction();
-          if (target && target.isConnected && settings.running) {
-            try { target.click(); } catch (e) {
-              console.warn('[Haddan Market Helper] orphan reward ACK click failed', e);
-            }
+    // A real standalone «Спасибо.» is itself authoritative evidence that Haddan
+    // is waiting for acknowledgement. Do not require pendingReward or a recent XP
+    // sample here: low-rank rewards can use a different grammar (e.g. «1 опыт»),
+    // and a lost parser sample must never leave the native terminal action stuck.
+    // The structural helper excludes the long-lived room/chat frame.
+    const standaloneThanks = !runtime.pendingReward ? findStandaloneThanksAction() : null;
+    if (standaloneThanks) {
+      if (now - lastOrphanThanksClickAt >= 1500) {
+        lastOrphanThanksClickAt = now;
+        await saveRuntime({ rewardAcknowledgingUntil: now + 3000 });
+        await setStatus('Фея: вижу незакрытое «Спасибо» · закрываю');
+        const target = findStandaloneThanksAction();
+        if (target && target.isConnected && settings.running) {
+          try { target.click(); } catch (e) {
+            console.warn('[Haddan Market Helper] standalone reward ACK click failed', e);
           }
         }
-        scheduleScan(500);
-        return;
       }
+      scheduleScan(450);
+      return;
+    }
+
+    // While one frame is recovering a standalone acknowledgement, keep every
+    // other Haddan frame from opening Fairy and overwriting the status with
+    // «Иду к Фее». The lock is intentionally short and self-expires.
+    if (!runtime.pendingReward && Number(runtime.rewardAcknowledgingUntil || 0) > now) {
+      await setStatus('Фея: закрываю «Спасибо»');
+      scheduleScan(Math.min(450, Math.max(120, Number(runtime.rewardAcknowledgingUntil) - now)));
+      return;
+    }
+    if (!runtime.pendingReward && runtime.rewardAcknowledgingUntil && Number(runtime.rewardAcknowledgingUntil) <= now) {
+      await saveRuntime({ rewardAcknowledgingUntil: 0 });
     }
 
     // Fast watchdog for a LOST RESOURCE CHOICE click. markPendingReward() is
@@ -1533,7 +1552,8 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       const rewardChoiceAt = Number(runtime.rewardChoiceAt || 0);
       const capturedAt = Number(runtime.lastRewardCapturedAt || 0);
       const capturedCurrentReward = rewardChoiceAt > 0 && capturedAt >= rewardChoiceAt;
-      if (!capturedCurrentReward && pendingSince && now - pendingSince >= REWARD_TRANSACTION_FAILSAFE_MS) {
+      const terminalThanksVisible = !!findExactThanksAction();
+      if (!capturedCurrentReward && !terminalThanksVisible && pendingSince && now - pendingSince >= REWARD_TRANSACTION_FAILSAFE_MS) {
         await clearRewardTransaction({ fairyChoiceActiveUntil: 0 });
         await setStatus('Фея: награда не появилась за 90 с · сбрасываю транзакцию и повторяю');
         scheduleScan(500);

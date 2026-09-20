@@ -209,8 +209,8 @@
   function parseProfessionalExp(text) {
     const src = normalizeText(text);
     const patterns = [
-      /(?:ты\s+)?получа(?:ешь|ешься|л|ла|ете|ют|ется)\s*\+?(\d+)\s+опыта\s+жнеца/gi,
-      /\+?(\d+)\s+опыта\s+жнеца/gi,
+      /(?:ты\s+)?получа(?:ешь|ешься|л|ла|ете|ют|ется)\s*\+?(\d+)\s+опыт(?:а)?\s+жнеца/gi,
+      /\+?(\d+)\s+опыт(?:а)?\s+жнеца/gi,
       /опыт(?:а)?\s+жнеца\s*[:+—-]?\s*(\d+)/gi
     ];
     const values = [];
@@ -242,7 +242,7 @@
     for (const resource of RESOURCES) {
       for (const alias of resource.aliases) {
         const re = new RegExp(
-          `я\\s+дам\\s+тебе\\s+(\\d[\\d\\s]*)\\s*(?:ед\\.?|шт\\.?)?\\s*${escapeRegExp(alias)}[\\s\\S]{0,240}?(\\d+)\\s+опыта\\s+жнеца`,
+          `я\\s+дам\\s+тебе\\s+(\\d[\\d\\s]*)\\s*(?:ед\\.?|шт\\.?)?\\s*${escapeRegExp(alias)}[\\s\\S]{0,240}?(\\d+)\\s+опыт(?:а)?\\s+жнеца`,
           'gi'
         );
         for (const match of src.matchAll(re)) {
@@ -266,7 +266,7 @@
   function extractProfessionalExpEvents(text) {
     const src = normalizeText(text);
     const found = [];
-    const re = /(?:ты\s+)?получа(?:ешь|ешься|л|ла|ете|ют|ется)\s*\+?(\d+)\s+опыта\s+жнеца|\+?(\d+)\s+опыта\s+жнеца|опыт(?:а)?\s+жнеца\s*[:+—-]?\s*(\d+)/gi;
+    const re = /(?:ты\s+)?получа(?:ешь|ешься|л|ла|ете|ют|ется)\s*\+?(\d+)\s+опыт(?:а)?\s+жнеца|\+?(\d+)\s+опыт(?:а)?\s+жнеца|опыт(?:а)?\s+жнеца\s*[:+—-]?\s*(\d+)/gi;
     for (const match of src.matchAll(re)) {
       const exp = Number(match[1] ?? match[2] ?? match[3]);
       if (!Number.isFinite(exp) || exp < 0 || exp > MAX_REAPER_EXP) continue;
@@ -505,14 +505,22 @@
       if (!text || text.length > 6000 || !FAIRY_MARKER_RE.test(text)) continue;
 
       const offers = extractOffers(text);
-      if (offers.length < 2) continue;
+      if (!offers.length) continue;
 
       // Resource lists are also mirrored into Haddan's chat/history frame.
       // Text alone is therefore NOT proof that this is the interactive Fairy
-      // choice page. Require at least two native qa.php resource links associated
-      // with this exact offer block before treating the document as actionable.
+      // choice page. Normally we require at least two native qa.php resource
+      // links associated with the same offer block. Low Жнец ranks are a special
+      // case: Haddan can legitimately offer only ONE resource. Accept that shape
+      // only inside the real qa.php dialogue, never from the long-lived room/chat
+      // frame where the same sentence is mirrored as history.
+      const singleOffer = offers.length === 1;
+      const liveQaDocument = /\/room\/func\/qa\.php$/i.test(location.pathname);
+      if (singleOffer && !liveQaDocument) continue;
+
       const choices = collectChoiceLinks(offers, el);
-      if (choices.length < 2) continue;
+      const requiredChoices = singleOffer ? 1 : 2;
+      if (choices.length < requiredChoices) continue;
 
       candidates.push({ el, offers, choices, textLength: text.length });
     }
@@ -552,10 +560,11 @@
     // The parser returns the smallest element containing the complete offer text.
     // In some Haddan layouts the actual links live one or two ancestors above it,
     // so widen the scope gradually, but never jump straight to unrelated frames.
+    const requiredMatches = offers.length === 1 ? 1 : 2;
     let scope = offerContainer;
     for (let depth = 0; scope && depth < 5; depth += 1, scope = scope.parentElement) {
       const matches = scanScope(scope);
-      if (matches.length >= 2) return matches;
+      if (matches.length >= requiredMatches) return matches;
       if (scope === document.body || scope === document.documentElement) break;
     }
 
@@ -688,7 +697,8 @@
     const { best: chosenBest, fallback: experienceFallback } = chooseBestOffer(valued);
     const byResourceId = Object.fromEntries(valued.map((offer) => [offer.resourceId, offer]));
     const choices = Array.isArray(precomputedChoices) ? precomputedChoices : collectChoiceLinks(offers, offerContainer);
-    if (choices.length < 2) return false;
+    const requiredChoices = offers.length === 1 ? 1 : 2;
+    if (choices.length < requiredChoices) return false;
 
     // IMPORTANT: Haddan's native resource links are intentionally left completely
     // untouched. We do not change their text, class, title, dataset, children or
@@ -826,6 +836,60 @@
 
     const decisionMode = automation.resourceMode;
     const decisionRank = automation.reaperRank;
+
+    // Pre-click watchdog. There is a narrow state before markPendingReward() where
+    // the delayed native click can be abandoned because a frame/document lock
+    // changed while the 1.2 s timer was waiting. In that case the ordinary
+    // 15-second reward watchdog cannot help because pendingReward was never armed.
+    // If THIS exact actionable choice document is still alive after 5 seconds and
+    // no reward transaction exists, allow a fresh local decision/scan. A successful
+    // navigation destroys this document, so the watchdog disappears naturally.
+    setTimeout(async () => {
+      if (!automation.running || !automation.collectResources || runtime.pauseReason === 'captcha') return;
+      if (!bestLink.isConnected) {
+        lastAutoChoiceKey = '';
+        lastAutoChoiceAt = 0;
+        scheduleScan();
+        return;
+      }
+
+      try {
+        const stored = await chrome.storage.local.get(BOT_RUNTIME_KEY);
+        const current = stored[BOT_RUNTIME_KEY] || {};
+        if (current.pendingReward) return;
+
+        const latestChoiceDoc = Number(current.latestFairyActionableChoiceDocumentStartedAt || 0);
+        const latestChoiceFrame = String(current.latestFairyActionableChoiceFrameKey || '');
+        const latestChoiceSignature = String(current.latestFairyActionableChoiceSignature || '');
+        if (latestChoiceDoc && DOCUMENT_STARTED_AT + 250 < latestChoiceDoc) return;
+        if (latestChoiceFrame && latestChoiceFrame !== frameContextKey()) return;
+        if (latestChoiceSignature && latestChoiceSignature !== signature) return;
+
+        const currentOffer = findFairyOfferSet();
+        if (!currentOffer) return;
+        const currentSignature = currentOffer.offers
+          .map((o) => `${o.resourceId}:${o.quantity}`)
+          .sort()
+          .join('|');
+        if (currentSignature !== signature) return;
+
+        lastAutoChoiceKey = '';
+        lastAutoChoiceAt = 0;
+        chrome.storage.local.set({
+          [BOT_STATUS_KEY]: {
+            text: `Фея: выбор ${bestOffer.resourceName} не начался за 5 с · повторяю`,
+            ts: Date.now(),
+            frame: location.pathname
+          }
+        }).catch(() => {});
+        scheduleScan();
+      } catch (_) {
+        lastAutoChoiceKey = '';
+        lastAutoChoiceAt = 0;
+        scheduleScan();
+      }
+    }, 5000);
+
     setTimeout(async () => {
       if (!bestLink.isConnected || !automation.running || !automation.collectResources) return;
       if (automation.resourceMode !== decisionMode || automation.reaperRank !== decisionRank) return;
