@@ -1,3 +1,12 @@
+## 0.6.69
+
+- CAPTCHA submit now uses a real native click on the visible enabled «В бой» button instead of `form.requestSubmit()`, preserving Haddan button click handlers.
+- Before every CAPTCHA submit, `#cap_symbols` is verified against the decoded rune sequence; stale/partial input is cleared and an already-correct answer is reused instead of being appended again (`24 -> 2424`).
+- A stalled CAPTCHA submit has its own bounded 3-click retry budget and no longer wastes API decode retries for the same unchanged challenge.
+- Added a CAPTCHA image watchdog: wait up to 5 seconds, retry the native `bc.php` image request once, then reload the whole Haddan tab if the image is still unavailable.
+- The `bc.php` retry is performed by updating the real `<img src>` with a cache-buster, so Chrome generates the normal image request headers, cookies, Referer and `Sec-Fetch-*` values instead of using a generic extension `fetch()`.
+- Full-page recovery is capped at 2 reloads per broken CAPTCHA session to prevent reload loops; the counter resets after a successful image load, successful CAPTCHA completion, or a new START.
+
 ## 0.6.68
 
 - Fairy choice annotations now show Tier-model predicted profession XP directly for every offered resource; predictions no longer depend on previously observed reward samples.
