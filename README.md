@@ -75,4 +75,4 @@ Use [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) before publishing a zip. New re
 
 ## Current version
 
-`0.6.42` fixes Fairy reward ACK recovery for Cyrillic resource names and keeps the saved-XP timeout fallback.
+`0.6.43` fixes the post-reward `Спасибо.` deadlock when Haddan moves the acknowledgement into a fresh `qa.php` document/frame after XP has already been saved.

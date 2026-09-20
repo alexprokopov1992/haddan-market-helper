@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.43
+
+- Fixed a Fairy reward ACK deadlock when Haddan renders the final `Спасибо.` in a fresh `qa.php` document whose frame identity differs from the resource-choice frame.
+- After the exact reward/XP has already been captured, a fresh post-choice `qa.php?id=9000` acknowledgement is accepted even if the frame key changed; stale documents created before the choice are still rejected.
+- Unrelated Haddan frames no longer overwrite the global status with `Фея: опыт сохранен · жду «Спасибо» в окне награды`.
+
 ## 0.6.42
 
 - Fixed Fairy reward ACK recovery for Cyrillic resource names by replacing a JavaScript `\b` word boundary with a Cyrillic-safe boundary.

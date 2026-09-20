@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   'use strict';
 
   if (window.__HMH_BATTLE_AUTOMATION__) return;
@@ -683,20 +683,34 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
 
   function rewardDocumentState() {
     const choiceAt = Number(runtime.rewardChoiceAt || runtime.pendingRewardSince || 0);
-    if (!choiceAt) return { choiceAt: 0, age: Infinity, freshDocument: false, sameChoiceFrame: false, captured: false };
+    if (!choiceAt) {
+      return {
+        choiceAt: 0,
+        age: Infinity,
+        freshDocument: false,
+        freshQaAfterChoice: false,
+        sameChoiceFrame: false,
+        captured: false
+      };
+    }
     const age = Date.now() - choiceAt;
     const choiceDocumentStartedAt = Number(runtime.rewardChoiceDocumentStartedAt || 0);
     const expectedFrame = String(runtime.rewardChoiceFrameKey || '');
     const sameChoiceFrame = !expectedFrame || expectedFrame === frameContextKey();
-    // Time alone is not enough: several Haddan qa.php iframes can be alive at once.
-    // The reward must arrive in the exact iframe/browsing context that submitted
-    // the resource choice. This prevents a stale «Спасибо.» from another frame
-    // from cancelling the real reward response.
+    const isQaDocument = /\/room\/func\/qa\.php$/i.test(location.pathname);
+
+    // Before XP is captured we keep the old strict binding to the frame that
+    // submitted the resource choice. After navigation Haddan can, however, render
+    // the final «Спасибо.» in a newly created qa.php document/browsing context.
+    // That new document can legitimately have another frameContextKey. Remember
+    // this separately so a captured reward cannot deadlock only because the frame
+    // identity changed during the server-side transition.
+    const freshQaAfterChoice = isQaDocument && DOCUMENT_STARTED_AT >= choiceAt - 250;
     const freshDocument = sameChoiceFrame &&
       DOCUMENT_STARTED_AT >= Math.max(choiceAt - 250, choiceDocumentStartedAt);
     const capturedAt = Number(runtime.lastRewardCapturedAt || 0);
     const captured = capturedAt >= choiceAt;
-    return { choiceAt, age, freshDocument, sameChoiceFrame, captured };
+    return { choiceAt, age, freshDocument, freshQaAfterChoice, sameChoiceFrame, captured };
   }
 
   function findBattleReturnAction(text = bodyText()) {
@@ -1254,10 +1268,12 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       // forever even though fairy.js has already captured the exact matching
       // reward sentence. Once that exact reward is captured, an exact «Спасибо.»
       // in the same iframe is safe evidence of the current transaction.
+      const capturedThanksHere = captured && !!exactThanksHere &&
+        (pendingRewardDoc.sameChoiceFrame || pendingRewardDoc.freshQaAfterChoice);
       const rewardSurfaceHere =
         (pendingRewardDoc.freshDocument &&
           (rewardConfirmationVisible(text) || !!exactThanksHere)) ||
-        (captured && pendingRewardDoc.sameChoiceFrame && !!exactThanksHere);
+        capturedThanksHere;
 
       // If an acknowledgement was scheduled but the page never transitioned,
       // release only the ACK sub-lock and let the same verified reward retry.
@@ -1277,9 +1293,10 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         await clearRewardTransaction();
       } else if (!rewardSurfaceHere) {
         if (captured) {
-          await setStatus(runtime.rewardAckStartedAt
-            ? 'Фея: опыт сохранен · жду перехода после «Спасибо»'
-            : 'Фея: опыт сохранен · жду «Спасибо» в окне награды');
+          // This is an unrelated Haddan frame. Do not let it overwrite the global
+          // status produced by the actual reward/ACK frame. In 0.6.42 this made a
+          // successfully captured reward look permanently stuck on
+          // «жду Спасибо в окне награды», even while another frame owned the ACK.
         } else if (rewardAge >= 15000) {
           await setStatus(`Фея: нет строки награды для ${runtime.pendingRewardResource || 'ресурса'} ${runtime.pendingRewardQuantity || ''} шт. — «Спасибо» не нажимаю`);
         } else {
@@ -1421,7 +1438,8 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     // pending choice. Therefore a captured reward + exact «Спасибо.» in the same
     // iframe is safe to acknowledge even if the sentence is no longer in DOM.
     const capturedReward = Number(runtime.lastRewardCapturedAt || 0) >= Number(runtime.rewardChoiceAt || 0);
-    if (runtime.pendingReward && capturedReward && exactThanks && rewardDoc.sameChoiceFrame) {
+    if (runtime.pendingReward && capturedReward && exactThanks &&
+        (rewardDoc.sameChoiceFrame || rewardDoc.freshQaAfterChoice)) {
       await clearBattleExpected();
 
       if (!runtime.rewardAckStartedAt) {
@@ -1451,7 +1469,8 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     // still treated as unsafe. Never auto-click it.
     // Never auto-click it. This is intentionally conservative: START/STOP or a
     // manual click can recover, but the plugin will not sacrifice the XP record.
-    if (runtime.pendingReward && exactThanks && rewardDoc.sameChoiceFrame) {
+    if (runtime.pendingReward && exactThanks &&
+        (rewardDoc.sameChoiceFrame || rewardDoc.freshQaAfterChoice)) {
       await setStatus(`Фея: вижу «Спасибо», но нет строки «Я дам тебе ${runtime.pendingRewardQuantity || '?'} ед. ${runtime.pendingRewardResource || 'ресурса'}…» — жду`);
       scheduleScan(300);
       return;
