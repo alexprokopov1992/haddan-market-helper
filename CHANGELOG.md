@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.41
+
+- Made reward ACK recovery detect the real chat echo format: `player -> *Фея Поляныnpc* Спасибо.`.
+- Binds that recovery to the current saved reward quantity/resource, avoiding stale `Спасибо` messages from older cycles.
+
 ## 0.6.40
 
 - Restored proper UTF-8 Russian text and regex literals in `content/automation.js`.

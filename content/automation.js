@@ -585,8 +585,21 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
   }
 
   function rewardAckEchoVisible(text = bodyText()) {
-    return /\b[^\n]{0,80}->\s*\*?Фея\s+Поляныnpc\*?\s*спасибо[.!]?/i.test(text) ||
-      /\bспасибо[.!]?[\s\S]{0,260}?я\s+дам\s+тебе\s+\d+\s*(?:ед\.?|шт\.?)/i.test(text);
+    const src = normalize(text);
+    const expectedName = normalize(runtime.pendingRewardResource);
+    const expectedQty = Number(runtime.pendingRewardQuantity || 0);
+    if (!expectedName || !expectedQty || !/спасибо[.!]?/i.test(src)) return false;
+
+    const escapedName = expectedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rewardLine = new RegExp(`я\\s+дам\\s+тебе\\s+${expectedQty}\\s*(?:ед\\.?|шт\\.?)\\s+${escapedName}\\b`, 'i');
+    if (!rewardLine.test(src)) return false;
+
+    const thanksToFairy = /->\s*\*?\s*Фея\s+Поляны\s*npc\s*\*?\s*спасибо[.!]?/i;
+    if (thanksToFairy.test(src)) return true;
+
+    const thanksIndex = src.search(/спасибо[.!]?/i);
+    const rewardIndex = src.search(rewardLine);
+    return thanksIndex >= 0 && rewardIndex >= 0 && Math.abs(thanksIndex - rewardIndex) <= 700;
   }
 
   function likelyIdlePolianaAfterReward() {
