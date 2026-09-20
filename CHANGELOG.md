@@ -1,3 +1,9 @@
+## 0.6.64
+
+- Added stochastic-rounding diagnostics to every Жнец XP sample: `universalExpectedExpMin`, `universalExpectedExpMax`, and `chanseUp`.
+- `chanseUp` is the fractional part of `universalExpectedExp` after the 1..10 cap; it represents the working hypothesis `P(round up) = fractional part`.
+- Historical samples are backfilled automatically on startup. Integer/capped universal expectations get `Min = Max` and `chanseUp = 0`.
+
 ## 0.6.63
 
 - Added `universalExpectedExp` to every Жнец XP sample while keeping the existing rank-specific `expectedExp` unchanged.

@@ -148,3 +148,24 @@ test('universalExpectedProfessionalExp applies the candidate tier/rank formula',
   assert.equal(shared.universalExpectedProfessionalExp('unknown', 10, 'Опытный Травник'), null);
   assert.equal(shared.universalExpectedProfessionalExp('1044', 10, 'unknown'), null);
 });
+
+
+test('universalExpectedProfessionalExpDetails exposes stochastic-rounding bounds and chance', () => {
+  assert.deepEqual(
+    shared.universalExpectedProfessionalExpDetails('1044', 39, 'Опытный Гербологист'),
+    { value: 6.5, min: 6, max: 7, chanceUp: 0.5 }
+  );
+  assert.deepEqual(
+    shared.universalExpectedProfessionalExpDetails('5901', 13, 'Опытный Гербологист'),
+    { value: 6.5, min: 6, max: 7, chanceUp: 0.5 }
+  );
+  assert.deepEqual(
+    shared.universalExpectedProfessionalExpDetails('1045', 12, 'Опытный Гербологист'),
+    { value: 8, min: 8, max: 8, chanceUp: 0 }
+  );
+  assert.deepEqual(
+    shared.universalExpectedProfessionalExpDetails('1044', 13, 'Новичок'),
+    { value: 10, min: 10, max: 10, chanceUp: 0 }
+  );
+  assert.equal(shared.universalExpectedProfessionalExpDetails('unknown', 10, 'Опытный Травник'), null);
+});

@@ -85,3 +85,11 @@ Stored XP samples also include `universalExpectedExp`, calculated in parallel as
 `quantity * (resourceTier + 6 - rankIndex) / (rankIndex + 1)`
 
 The value is capped to `1..10` and kept fractional. It is experimental and does not replace the rank-specific `expectedExp` model.
+
+Each stored sample also includes stochastic-rounding diagnostics derived from the universal value:
+
+- `universalExpectedExpMin = floor(universalExpectedExp)`
+- `universalExpectedExpMax = ceil(universalExpectedExp)`
+- `chanseUp = universalExpectedExp - floor(universalExpectedExp)` (0 for an integer/capped value)
+
+The `chanseUp` field intentionally follows the storage key requested for the experiment. It represents the current hypothesis that the server rounds up with probability equal to the fractional part.

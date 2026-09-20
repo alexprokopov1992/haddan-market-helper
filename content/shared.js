@@ -194,7 +194,7 @@
   // rankIndex is the zero-based position in REAPER_RANKS and resourceTier is
   // REAPER_RESOURCE_TIERS. The result is intentionally fractional and capped to
   // the game's observed 1..10 reward range.
-  function universalExpectedProfessionalExp(resourceId, quantity, rankKey) {
+  function universalExpectedProfessionalExpDetails(resourceId, quantity, rankKey) {
     const qty = Number(quantity);
     if (!Number.isFinite(qty) || qty <= 0) return null;
 
@@ -208,7 +208,15 @@
 
     const raw = qty * (tier + 6 - rankIndex) / (rankIndex + 1);
     const capped = Math.min(MAX_REAPER_EXP, Math.max(1, raw));
-    return Math.round(capped * 10000) / 10000;
+    const value = Math.round(capped * 10000) / 10000;
+    const min = Math.floor(value);
+    const max = Math.ceil(value);
+    const chanceUp = min === max ? 0 : Math.round((value - min) * 10000) / 10000;
+    return { value, min, max, chanceUp };
+  }
+
+  function universalExpectedProfessionalExp(resourceId, quantity, rankKey) {
+    return universalExpectedProfessionalExpDetails(resourceId, quantity, rankKey)?.value ?? null;
   }
 
   function sampleWeight(sample) {
@@ -349,6 +357,7 @@
     validReaperExp,
     expectedProfessionalExp,
     universalExpectedProfessionalExp,
+    universalExpectedProfessionalExpDetails,
     sampleWeight,
     weightedMedian,
     exactExperienceSummary,
