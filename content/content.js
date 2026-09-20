@@ -547,13 +547,28 @@
     return normalizeMarketOffers(rawOffers, resource);
   }
 
+  async function fetchTextWithTimeout(url, options = {}, timeoutMs = 15000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      const text = await response.text();
+      return { response, text };
+    } catch (error) {
+      if (error?.name === 'AbortError') throw new Error(`таймаут запроса ${Math.round(timeoutMs / 1000)} с`);
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async function fetchResource(resource) {
     const body = new URLSearchParams();
     body.set('needle', resource.name);
     body.set('thingType', resource.id);
 
     const endpoint = new URL('/room/func/shopsearch.php', location.origin).toString();
-    const response = await fetch(endpoint, {
+    const { response, text: html } = await fetchTextWithTimeout(endpoint, {
       method: 'POST',
       credentials: 'include',
       cache: 'no-store',
@@ -561,13 +576,12 @@
         'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
       },
       body: body.toString()
-    });
+    }, 15000);
 
     if (!response.ok) {
       throw new Error(`${resource.name}: HTTP ${response.status}`);
     }
 
-    const html = await response.text();
     if (!html.includes('mainTableBody')) {
       throw new Error(`${resource.name}: ответ не похож на страницу поиска (возможно, сессия закончилась)`);
     }
@@ -742,11 +756,10 @@
 
   async function refreshReaperProfile() {
     try {
-      const response = await fetch(new URL('/info/info.php', location.origin), {
+      const { response, text: html } = await fetchTextWithTimeout(new URL('/info/info.php', location.origin), {
         credentials: 'include', cache: 'no-store'
-      });
+      }, 12000);
       if (!response.ok) return;
-      const html = await response.text();
       const doc = new DOMParser().parseFromString(html, 'text/html');
       const profile = parseReaperProfile(doc.body?.innerText || doc.body?.textContent || '');
       if (!profile) return;

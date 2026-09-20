@@ -28,17 +28,28 @@
   let lastClickKey = '';
   let scanTimer = null;
   let lastStatusText = '';
+  let lastOrphanThanksClickAt = 0;
   const DOCUMENT_STARTED_AT = Date.now();
   let captchaSolveInFlight = false;
   let lastCaptchaDecode = null;
   let captchaAttemptCount = 0;
   let captchaRetryAt = 0;
   let captchaAttemptFingerprint = '';
+  let captchaSubmitExhausted = false;
   const CAPTCHA_DECODE_MESSAGE_TIMEOUT_MS = 18000;
   const CAPTCHA_MAX_AUTO_ATTEMPTS = 3;
   const CAPTCHA_RETRY_DELAYS_MS = [1500, 3500, 7000];
   const REWARD_ACK_FAILSAFE_MS = 30000;
+  const REWARD_CAPTURE_ORPHAN_FAILSAFE_MS = 120000;
+  const ORPHAN_THANKS_RECOVERY_WINDOW_MS = 300000;
+  const REWARD_SURFACE_HEARTBEAT_MS = 5000;
   const REWARD_MISSING_LINE_THANKS_FAILSAFE_MS = 30000;
+  const REWARD_TRANSACTION_FAILSAFE_MS = 90000;
+  const RESOURCE_CHOICE_STALL_FAILSAFE_MS = 15000;
+  const CAPTCHA_SUBMIT_STALL_MS = 12000;
+  const UNKNOWN_COOLDOWN_RECHECK_MS = 60000;
+  const CONTINUE_BATTLE_RECOVERY_RETRY_MS = 15000;
+  const CLICK_WATCHDOG_MS = 1200;
   const DEBUG_LOGS = false;
 
   function debugLog(...args) {
@@ -216,6 +227,7 @@
     captchaAttemptCount = 0;
     captchaRetryAt = 0;
     captchaAttemptFingerprint = '';
+    captchaSubmitExhausted = false;
   }
 
 function waitForCondition(check, timeoutMs = 2000, intervalMs = 50) {
@@ -615,7 +627,14 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
   }
 
   function readyDialogueVisible(text = bodyText()) {
-    return /тебе\s+нужны\s+новые\s+травы\s*,?\s*жнец/i.test(text);
+    if (!/тебе\s+нужны\s+новые\s+травы\s*,?\s*жнец/i.test(text)) return false;
+
+    // The same NPC sentence is copied into the room chat log. automation.js runs
+    // in every Haddan frame, so matching bodyText() alone lets the long-lived room
+    // frame masquerade as the live qa.php dialogue. Require either the real qa.php
+    // document or its actionable «Да, мне нужны новые травы» control.
+    return /\/room\/func\/qa\.php$/i.test(location.pathname) ||
+      !!findQaAction(100, /да.*нужны.*новые\s+травы/i);
   }
 
   function professionalExpFromRewardText(text = bodyText()) {
@@ -685,7 +704,14 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
   }
 
   function fairyCooldownDialogueVisible(text = bodyText()) {
-    return /сейчас\s+пока\s+нет\s+для\s+тебя\s+работы/i.test(text);
+    if (!/сейчас\s+пока\s+нет\s+для\s+тебя\s+работы/i.test(text)) return false;
+
+    // Do not treat the NPC echo in the room chat as an open Fairy cooldown dialog.
+    // The live dialog is a qa.php document (or exposes its exact close action).
+    // This matters because the chat can permanently retain old lines such as
+    // «Приходи где-то через ?».
+    return /\/room\/func\/qa\.php$/i.test(location.pathname) ||
+      !!findQaAction(9000, /хорошо.*подойду.*позже/i);
   }
 
   function parseFairyWaitMs(text = bodyText()) {
@@ -727,15 +753,20 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       } catch (_) { return false; }
     });
 
-    // Some old Haddan pages split a single visual action into several <a> tags
-    // with the same qa.php?id. Prefer the one whose label actually matches.
+    // Haddan reuses the same qa.php?id for semantically different terminal actions.
+    // In particular id=9000 is used both for «Спасибо.» after a reward and for
+    // «Хорошо, я подойду позже.» on the Fairy cooldown page. Therefore, when a
+    // label matcher is supplied, BOTH the id and the visible label must match.
+    // Falling back to an arbitrary link with the same id causes a loop where a
+    // cooldown close link is mistaken for an orphan reward acknowledgement.
     if (textRe) {
-      const labeledById = byId.find((el) => textRe.test(elementLabel(el)));
-      if (labeledById) return labeledById;
+      return byId.find((el) => {
+        textRe.lastIndex = 0;
+        return textRe.test(elementLabel(el));
+      }) || null;
     }
-    if (byId.length) return byId[0];
-    if (textRe) return links.find((el) => textRe.test(elementLabel(el))) || null;
-    return null;
+
+    return byId[0] || null;
   }
 
   function findContinueBattleAction(text = bodyText()) {
@@ -986,7 +1017,14 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
   }
 
   async function clickAction(el, key, status, delay = 350) {
-    if (!el || !canClickAgain(key)) return false;
+    if (!el) return false;
+    if (!canClickAgain(key)) {
+      // A fast rescan can arrive from chrome.storage.onChanged before the delayed
+      // native click has even fired. Never let that throttled rescan become the
+      // last scan of the FSM.
+      scheduleScan(350);
+      return false;
+    }
     lastClickAt = Date.now();
     lastClickMutation = mutationVersion;
     lastClickKey = key || '';
@@ -1008,6 +1046,11 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         console.warn('[Haddan Market Helper] auto click failed', key, e);
       }
     }, delay);
+
+    // Independent trailing watchdog. Successful navigation destroys this timer; if
+    // Haddan ignores the click (or MAIN-world messaging stalls), the FSM still gets
+    // another scan instead of stopping on the last status forever.
+    setTimeout(() => scheduleScan(60), delay + CLICK_WATCHDOG_MS);
     return true;
   }
 
@@ -1112,9 +1155,44 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       // The content side now has its own watchdog and retries the same unchanged
       // challenge a few times. This also recovers after a page reload when the
       // shared runtime still says pauseReason='captcha' and firstDetection=false.
+      // A retry budget belongs to one concrete image only. If the user/site
+      // regenerates the CAPTCHA without removing the widget, release an exhausted
+      // budget so the new challenge can be solved automatically.
+      if ((captchaSubmitExhausted || captchaRetryAt === Number.POSITIVE_INFINITY) && captchaAttemptFingerprint) {
+        try {
+          const currentCaptchaImage = await captureCaptchaImageDataUrl();
+          if (hashString(currentCaptchaImage) !== captchaAttemptFingerprint) {
+            resetCaptchaRequestState();
+            lastCaptchaDecode = null;
+          }
+        } catch (_) {}
+      }
+
+      // A successful form submission is not proof that Haddan actually accepted
+      // it. If the exact same CAPTCHA remains visible, retry the unchanged challenge
+      // after a bounded grace period. Previously lastCaptchaDecode.applied=true
+      // blocked every future attempt forever at «жду переход страницы».
+      if (lastCaptchaDecode?.applied && lastCaptchaDecode.submittedAt &&
+          now - Number(lastCaptchaDecode.submittedAt) >= CAPTCHA_SUBMIT_STALL_MS) {
+        if (captchaAttemptCount < CAPTCHA_MAX_AUTO_ATTEMPTS) {
+          lastCaptchaDecode.applied = false;
+          captchaRetryAt = now;
+          await setCaptchaStatus(
+            'waiting',
+            `CAPTCHA: переход не произошёл · повтор ${captchaAttemptCount + 1}/${CAPTCHA_MAX_AUTO_ATTEMPTS}`,
+            { progress: 40, detail: 'После отправки CAPTCHA осталась на странице; повторяю тот же challenge.' }
+          );
+        } else {
+          lastCaptchaDecode.applied = false;
+          captchaRetryAt = Number.POSITIVE_INFINITY;
+          captchaSubmitExhausted = true;
+        }
+      }
+
       const captchaAutoAttemptDue = settings.solveCaptcha &&
         !!settings.captchaApiToken &&
         !captchaSolveInFlight &&
+        !captchaSubmitExhausted &&
         !lastCaptchaDecode?.applied &&
         now >= Number(captchaRetryAt || 0);
       if (captchaAutoAttemptDue) {
@@ -1125,6 +1203,12 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         await setCaptchaStatus('manual', 'CAPTCHA: ручной режим — введи руны вручную', { progress: 0 });
       } else if (!settings.captchaApiToken) {
         await setCaptchaStatus('manual', 'CAPTCHA: API token не задан — нужен ручной ввод', { progress: 0 });
+      } else if (captchaSubmitExhausted) {
+        await setCaptchaStatus(
+          'error',
+          `CAPTCHA: отправлена ${captchaAttemptCount} раз(а), но перехода нет`,
+          { progress: 0, detail: 'Автоповторы остановлены для этой CAPTCHA. Можно завершить её вручную; цикл возобновится после исчезновения проверки.' }
+        );
       } else if (captchaHookResult?.stage === 'challenge-changed') {
         await setCaptchaStatus('error', 'CAPTCHA: изображение изменилось во время запроса', { progress: 0, detail: 'Challenge сменился до применения ответа. Введи текущие руны вручную.' });
       } else if (captchaHookResult?.stage === 'challenge-gone') {
@@ -1265,6 +1349,19 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         return;
       }
 
+      if (attempts >= 2 && sinceRecovery >= CONTINUE_BATTLE_RECOVERY_RETRY_MS) {
+        // The guard still proves that a fight exists. Reset only the bounded retry
+        // counter and try the native «Продолжить бой» again instead of waiting on
+        // this exact page forever after two ignored clicks.
+        await saveRuntime({
+          battleRecoveryLastClickAt: 0,
+          battleRecoveryAttempts: 0
+        });
+        await setStatus('Бой: возврат не сработал · повторяю восстановление');
+        scheduleScan(300);
+        return;
+      }
+
       await setStatus('Бой: жду возврат в бой');
       scheduleScan(500);
       return;
@@ -1281,7 +1378,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         battleStartRequestDocumentStartedAt: 0,
         battleStartAttempts: 0
       });
-      if (runtime.fairyWaitUntil) await saveRuntime({ fairyWaitUntil: 0 });
+      if (runtime.fairyWaitUntil) await saveRuntime({ fairyWaitUntil: 0, fairyWaitKind: '' });
       await clickAction(battleReturn, 'battle-return', 'Бой завершен: возвращаюсь с Поляны', 180);
       return;
     }
@@ -1290,7 +1387,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     //    important because automation.js runs in several Haddan frames.
     const battleVisible = battleInterfaceVisible(text);
     if (battleVisible) {
-      if (runtime.fairyWaitUntil) await saveRuntime({ fairyWaitUntil: 0 });
+      if (runtime.fairyWaitUntil) await saveRuntime({ fairyWaitUntil: 0, fairyWaitKind: '' });
       await touchBattleExpected(60000);
 
       // The extension no longer conducts combat. Haddan's built-in autobattle owns
@@ -1317,6 +1414,24 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     //    allowed to drive the Fairy FSM. Only the actual battle/result/recovery
     //    states above may clear this lock.
     if (runtime.battleActive) {
+      const battleDeadline = Number(runtime.battleExpectedUntil || 0);
+      if (!battleDeadline || battleDeadline <= now) {
+        // battleExpectedUntil is refreshed while a real fight surface is visible.
+        // If no frame has seen the fight for a full deadline window, battleActive is
+        // stale. Leaving that boolean set used to block the Fairy FSM forever.
+        await clearBattleActive();
+        await saveRuntime({
+          battleExpectedUntil: 0,
+          battleStartRequestedAt: 0,
+          battleStartRequestFrameKey: '',
+          battleStartRequestDocumentStartedAt: 0,
+          battleStartAttempts: 0
+        });
+        await setStatus('Бой: интерфейс боя давно не виден · снимаю зависшую блокировку');
+        scheduleScan(300);
+        return;
+      }
+
       await setStatus('Бой: активен, жду штатный автобой/результат');
       scheduleScan(500);
       return;
@@ -1334,19 +1449,94 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       await saveRuntime({ dialogInitRecoveryUntil: 0 });
     }
 
-    // Failsafe requested for the post-reward acknowledgement. Once the exact XP
-    // reward has already been captured, do not let a broken/stale «Спасибо.»
-    // transition lock the whole Fairy cycle forever. After 30 seconds we keep the
-    // captured XP evidence, drop only the pending transaction/ACK locks, and let
-    // the next scan continue from whatever page Haddan is currently showing.
+    // Recovery for the exact regression visible in v0.6.47-v0.6.51: an older
+    // post-XP watchdog could clear pendingReward while the real qa.php frame was
+    // still sitting on the native «Спасибо.» link. Another idle frame then tried
+    // to open Fairy again and the global status became «Иду к Фее», even though
+    // the acknowledgement dialog was visibly still open.
+    //
+    // If the transaction lock is already gone, only auto-close an orphan
+    // «Спасибо.» when there is very recent captured reward evidence. Requiring a
+    // real qa.php document + exact id=9000 label + recent XP sample prevents an
+    // unrelated/stale chat link from being clicked.
+    if (!runtime.pendingReward && /\/room\/func\/qa\.php$/i.test(location.pathname)) {
+      const orphanThanks = findExactThanksAction();
+      const capturedAt = Number(runtime.lastRewardCapturedAt || 0);
+      const captureAge = capturedAt ? now - capturedAt : Infinity;
+      const capturedExp = Number(runtime.lastRewardCapturedExp);
+      const capturedQty = Number(runtime.lastRewardCapturedQuantity || 0);
+      const recentCapturedReward = capturedAt > 0 && captureAge >= 0 &&
+        captureAge <= ORPHAN_THANKS_RECOVERY_WINDOW_MS &&
+        Number.isFinite(capturedExp) && capturedQty > 0;
+
+      if (orphanThanks && recentCapturedReward) {
+        if (now - lastOrphanThanksClickAt >= 1500) {
+          lastOrphanThanksClickAt = now;
+          await setStatus('Фея: найдено незакрытое «Спасибо» после сохраненной награды · закрываю');
+          const target = findExactThanksAction();
+          if (target && target.isConnected && settings.running) {
+            try { target.click(); } catch (e) {
+              console.warn('[Haddan Market Helper] orphan reward ACK click failed', e);
+            }
+          }
+        }
+        scheduleScan(500);
+        return;
+      }
+    }
+
+    // Fast watchdog for a LOST RESOURCE CHOICE click. markPendingReward() is
+    // intentionally stored before the native <a> click to lock all other Haddan
+    // frames. If that click is swallowed (DOM replacement, throttled timer, or a
+    // transient browser/navigation race), v0.6.50 could sit on the exact same
+    // «Выбери себе» page until the generic 90-second transaction watchdog fired.
+    //
+    // It is safe to retry much earlier when ALL of the following are true:
+    //   * no matching reward has been captured;
+    //   * this is the exact frame/document that submitted the resource choice;
+    //   * the original Fairy choice UI is STILL present after 15 seconds.
+    // A successful navigation destroys/replaces this document, so a stale choice
+    // frame elsewhere cannot release a legitimate reward transaction.
     if (runtime.pendingReward) {
+      const choiceAt = Number(runtime.rewardChoiceAt || runtime.pendingRewardSince || 0);
+      const capturedAt = Number(runtime.lastRewardCapturedAt || 0);
+      const capturedCurrentReward = choiceAt > 0 && capturedAt >= choiceAt;
+      const expectedFrame = String(runtime.rewardChoiceFrameKey || '');
+      const sameChoiceFrame = !expectedFrame || expectedFrame === frameContextKey();
+      const choiceDocumentStartedAt = Number(runtime.rewardChoiceDocumentStartedAt || 0);
+      const sameChoiceDocument = choiceDocumentStartedAt > 0 &&
+        Math.abs(DOCUMENT_STARTED_AT - choiceDocumentStartedAt) <= 250;
+      const choiceStillVisible = fairyChoiceVisible(text);
+
+      if (!capturedCurrentReward && choiceAt && sameChoiceFrame && sameChoiceDocument &&
+          choiceStillVisible && now - choiceAt >= RESOURCE_CHOICE_STALL_FAILSAFE_MS) {
+        const resourceName = runtime.pendingRewardResource || 'ресурс';
+        const quantity = Number(runtime.pendingRewardQuantity || 0);
+        await clearRewardTransaction({
+          fairyChoiceActiveUntil: 0,
+          latestFairyActionableChoiceDocumentStartedAt: 0,
+          latestFairyActionableChoiceFrameKey: '',
+          latestFairyActionableChoiceSignature: ''
+        });
+        await setStatus(`Фея: выбор ${resourceName}${quantity ? ` ${quantity} шт.` : ''} не открыл награду за 15 с · повторяю`);
+        scheduleScan(250);
+        return;
+      }
+    }
+
+    // Generic reward transaction watchdog. The 30-second «Спасибо» fallback only
+    // helps once a valid acknowledgement is visible (or XP was already captured).
+    // If the resource click itself was lost and Haddan shows neither reward nor
+    // «Спасибо», pendingReward otherwise had no terminal path at all.
+    if (runtime.pendingReward) {
+      const pendingSince = Number(runtime.pendingRewardSince || runtime.rewardChoiceAt || 0);
       const rewardChoiceAt = Number(runtime.rewardChoiceAt || 0);
       const capturedAt = Number(runtime.lastRewardCapturedAt || 0);
       const capturedCurrentReward = rewardChoiceAt > 0 && capturedAt >= rewardChoiceAt;
-      if (capturedCurrentReward && now - capturedAt >= REWARD_ACK_FAILSAFE_MS) {
-        await clearRewardTransaction();
-        await setStatus('Фея: «Спасибо» не завершилось за 30 с · пропускаю этот этап');
-        scheduleScan(250);
+      if (!capturedCurrentReward && pendingSince && now - pendingSince >= REWARD_TRANSACTION_FAILSAFE_MS) {
+        await clearRewardTransaction({ fairyChoiceActiveUntil: 0 });
+        await setStatus('Фея: награда не появилась за 90 с · сбрасываю транзакцию и повторяю');
+        scheduleScan(500);
         return;
       }
     }
@@ -1396,6 +1586,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         // wait after the local deadline reaches zero.
         await saveRuntime({
           fairyWaitUntil: 0,
+          fairyWaitKind: '',
           fairyCooldownMinDocumentStartedAt: Math.max(
             Number(runtime.fairyCooldownMinDocumentStartedAt || 0),
             Date.now()
@@ -1423,6 +1614,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         if (runtime.fairyWaitUntil && runtime.fairyWaitUntil <= now) {
           await saveRuntime({
             fairyWaitUntil: 0,
+            fairyWaitKind: '',
             fairyCooldownMinDocumentStartedAt: Math.max(
               Number(runtime.fairyCooldownMinDocumentStartedAt || 0),
               Date.now()
@@ -1462,7 +1654,11 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
           }
 
           // A new/fresh cooldown page may initialize the shared deadline once.
-          await saveRuntime({ fairyWaitUntil: Date.now() + waitMs + 1200 });
+          await saveRuntime({ fairyWaitUntil: Date.now() + waitMs + 1200, fairyWaitKind: 'known' });
+        } else if (runtime.fairyWaitKind !== 'known') {
+          // A previous unknown-format watchdog must never be presented as a real
+          // server countdown once this document provides a parseable duration.
+          await saveRuntime({ fairyWaitUntil: Date.now() + waitMs + 1200, fairyWaitKind: 'known' });
         }
 
         const remaining = Math.max(0, (runtime.fairyWaitUntil || 0) - Date.now());
@@ -1473,10 +1669,60 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         }
       }
 
-      // Unknown timer format: remain in the current dialogue. Never fall through to
-      // "Иду к Фее" while the cooldown message is visibly open.
-      await setStatus('Фея: вижу таймер, не удалось разобрать время');
-      scheduleScan(600);
+      // Unknown timer format must also have a terminal path. Keep a conservative
+      // one-minute local deadline, then mark this document stale and close it if
+      // possible. Reopening the Fairy lets the server report the remaining cooldown
+      // again without letting an unparseable layout freeze the bot forever.
+      const minDocumentStartedAt = Number(runtime.fairyCooldownMinDocumentStartedAt || 0);
+      if (minDocumentStartedAt && DOCUMENT_STARTED_AT < minDocumentStartedAt) {
+        const close = findQaAction(9000, /хорошо.*подойду.*позже/i);
+        if (close) {
+          await clickAction(close, 'fairy-close-stale-unknown-timer', 'Фея: старый непонятный таймер · закрываю диалог', 220);
+          return;
+        }
+        scheduleScan(900);
+        return;
+      }
+
+      // If another fresh cooldown frame has already parsed a real server timer,
+      // preserve that authoritative deadline instead of downgrading it to the
+      // unknown-format watchdog.
+      if (runtime.fairyWaitUntil && runtime.fairyWaitUntil > now && runtime.fairyWaitKind === 'known') {
+        await setStatus(`Фея: ждать ${formatCountdown(runtime.fairyWaitUntil - now)}`);
+        scheduleScan(1000);
+        return;
+      }
+
+      if (!runtime.fairyWaitUntil || runtime.fairyWaitKind !== 'unknown') {
+        await saveRuntime({
+          fairyWaitUntil: now + UNKNOWN_COOLDOWN_RECHECK_MS,
+          fairyWaitKind: 'unknown'
+        });
+      }
+
+      const unknownRemaining = Math.max(0, Number(runtime.fairyWaitUntil || 0) - Date.now());
+      if (unknownRemaining > 0) {
+        await setStatus(`Фея: время таймера не распознано · повторная проверка через ${formatCountdown(unknownRemaining)}`);
+        scheduleScan(1000);
+        return;
+      }
+
+      await saveRuntime({
+        fairyWaitUntil: 0,
+        fairyWaitKind: '',
+        fairyCooldownMinDocumentStartedAt: Math.max(
+          Number(runtime.fairyCooldownMinDocumentStartedAt || 0),
+          Date.now()
+        ),
+        fairyCooldownTransitionUntil: Date.now() + 2500
+      });
+      const closeUnknown = findQaAction(9000, /хорошо.*подойду.*позже/i);
+      if (closeUnknown) {
+        await clickAction(closeUnknown, 'fairy-close-unknown-timer', 'Фея: не удалось разобрать таймер · закрываю и перепроверю', 220);
+        return;
+      }
+      await setStatus('Фея: не удалось разобрать таймер · освобождаю старый диалог');
+      scheduleScan(700);
       return;
     }
 
@@ -1484,94 +1730,139 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     //    This prevents an idle/chat frame from clicking Fairy or an old "Спасибо"
     //    while another frame is legitimately waiting for the cooldown.
     if (runtime.fairyWaitUntil && runtime.fairyWaitUntil > now) {
-      await setStatus(`Фея: ждать ${formatCountdown(runtime.fairyWaitUntil - now)}`);
+      const remaining = runtime.fairyWaitUntil - now;
+      await setStatus(runtime.fairyWaitKind === 'unknown'
+        ? `Фея: время таймера не распознано · повторная проверка через ${formatCountdown(remaining)}`
+        : `Фея: ждать ${formatCountdown(remaining)}`);
       scheduleScan(1000);
       return;
     }
     if (runtime.fairyWaitUntil && runtime.fairyWaitUntil <= now) {
-      await saveRuntime({ fairyWaitUntil: 0 });
+      await saveRuntime({ fairyWaitUntil: 0, fairyWaitKind: '' });
     }
 
     // A reward choice is a GLOBAL transaction across all Haddan frames. While it
     // is open, stale ready/choice/chat frames are forbidden from talking to the
     // Fairy. The only frames allowed through are the current reward response
-    // (XP text / «Спасибо.») handled below. v0.6.27 released this lock as soon as
-    // XP was parsed, leaving a race where another frame could show «Иду к Фее»
-    // before «Спасибо.» had completed.
+    // (XP text / «Спасибо.») handled below.
     if (runtime.pendingReward) {
       const pendingRewardDoc = rewardDocumentState();
       const exactThanksHere = findExactThanksAction();
-      const captured = Number(runtime.lastRewardCapturedAt || 0) >= Number(runtime.rewardChoiceAt || 0);
+      const exactRewardHere = pendingRewardObservation(text);
+      const choiceAt = Number(runtime.rewardChoiceAt || 0);
+      const capturedAt = Number(runtime.lastRewardCapturedAt || 0);
+      const captured = choiceAt > 0 && capturedAt >= choiceAt;
       const rewardAge = now - Number(runtime.pendingRewardSince || now);
 
-      // Recovery for the case where Haddan accepted «Спасибо.» and closed the
-      // reward iframe before this frame could observe the post-ACK transition.
-      // IMPORTANT: an idle top frame alone is NOT proof that «Спасибо.» was sent.
-      // In v0.6.43 that heuristic could clear pendingReward while the real reward
-      // iframe was still visibly waiting on «Спасибо.», after which another frame
-      // reopened the Fairy and the UI got stuck on «Иду к Фее».  We now release
-      // from an idle Poliana page only after an ACK was actually scheduled.
-      const activeAckStartedAt = Number(runtime.rewardAckStartedAt || 0);
-      const activeAckAge = activeAckStartedAt ? now - activeAckStartedAt : Infinity;
+      // A reward surface can be updated in place or appear in a fresh qa.php
+      // document. Keep a lightweight global heartbeat while a verified surface is
+      // actually visible. This lets unrelated Haddan frames distinguish
+      // "the reward is still open elsewhere" from "the reward frame vanished".
+      const capturedThanksHere = captured && !!exactThanksHere &&
+        (pendingRewardDoc.sameChoiceFrame || pendingRewardDoc.freshQaAfterChoice);
+      const rewardSurfaceHere =
+        (pendingRewardDoc.freshDocument && (!!exactRewardHere || !!exactThanksHere)) ||
+        capturedThanksHere;
+      if (rewardSurfaceHere && now - Number(runtime.rewardSurfaceLastSeenAt || 0) >= 1000) {
+        await saveRuntime({ rewardSurfaceLastSeenAt: now });
+      }
 
-      // Never use an idle top-level Poliana page as proof that «Спасибо.» was
-      // accepted. The reward qa.php iframe can still be visibly open at the same
-      // time. Only a real post-click server echo may release the transaction here;
-      // the normal path is the fresh cooldown document handled above.
+      // Recovery for the case where Haddan accepted «Спасибо.» and echoed the
+      // acknowledgement in chat before this frame observed the next dialogue.
+      let activeAckStartedAt = Number(runtime.rewardAckStartedAt || 0);
+      let activeAckAge = activeAckStartedAt ? now - activeAckStartedAt : Infinity;
       if (captured && activeAckStartedAt && activeAckAge >= 250 && rewardAckEchoVisible(text)) {
         await clearRewardTransaction();
         scheduleScan(250);
         return;
       }
 
-      // Normal case: a new reward document appeared after the choice.
-      // Haddan can also update the SAME qa.php document in place. In that case
-      // DOCUMENT_STARTED_AT predates rewardChoiceAt, so freshDocument stays false
-      // forever even though fairy.js has already captured the exact matching
-      // reward sentence. Once that exact reward is captured, an exact «Спасибо.»
-      // in the same iframe is safe evidence of the current transaction.
-      const capturedThanksHere = captured && !!exactThanksHere &&
-        (pendingRewardDoc.sameChoiceFrame || pendingRewardDoc.freshQaAfterChoice);
-      const rewardSurfaceHere =
-        (pendingRewardDoc.freshDocument &&
-          (rewardConfirmationVisible(text) || !!exactThanksHere)) ||
-        capturedThanksHere;
+      // Some servers can transition directly to a fresh ready page after the
+      // acknowledgement. Accept it only from the frame/document that actually
+      // attempted the native «Спасибо.» click.
+      const ackFrameKey = String(runtime.rewardAckFrameKey || '');
+      const sameAckFrame = !ackFrameKey || ackFrameKey === frameContextKey();
+      const freshPostAckReady = activeAckStartedAt && sameAckFrame &&
+        DOCUMENT_STARTED_AT >= activeAckStartedAt - 250 &&
+        readyDialogueVisible(text);
+      if (freshPostAckReady) {
+        await clearRewardTransaction();
+        scheduleScan(250);
+        return;
+      }
 
-      // If an acknowledgement was scheduled but the page never transitioned,
-      // release only the ACK sub-lock and let the same verified reward retry.
-      // pendingReward itself remains intact, so no stale frame can start a new cycle.
+      // If an acknowledgement was only scheduled, or a real click attempt did not
+      // transition within the short ACK window, clear ONLY the ACK sub-lock. The
+      // reward transaction itself remains locked so the verified «Спасибо.» frame
+      // can retry safely.
       const scheduledAckAt = Number(runtime.rewardAckScheduledAt || 0);
-      if (scheduledAckAt && !runtime.rewardAckStartedAt && now - scheduledAckAt > 1500) {
+      if (scheduledAckAt && !activeAckStartedAt && now - scheduledAckAt > 1500) {
         await saveRuntime({ rewardAckScheduledAt: 0, rewardAcknowledgingUntil: 0 });
       }
 
       const acknowledgingUntil = Number(runtime.rewardAcknowledgingUntil || 0);
-      if (runtime.rewardAckStartedAt && acknowledgingUntil && now > acknowledgingUntil) {
+      if (activeAckStartedAt && acknowledgingUntil && now > acknowledgingUntil) {
         await saveRuntime({
           rewardAckStartedAt: 0,
           rewardAckFrameKey: '',
           rewardAckDocumentStartedAt: 0,
           rewardAcknowledgingUntil: 0
         });
+        activeAckStartedAt = 0;
+        activeAckAge = Infinity;
       }
 
-      // Some servers can transition directly to a fresh ready page after the
-      // acknowledgement. Accept that only from the frame that actually attempted
-      // the native «Спасибо.» click and from a document created after that click.
-      const ackStartedAt = Number(runtime.rewardAckStartedAt || 0);
-      const ackFrameKey = String(runtime.rewardAckFrameKey || '');
-      const sameAckFrame = !ackFrameKey || ackFrameKey === frameContextKey();
-      const freshPostAckReady = ackStartedAt && sameAckFrame &&
-        DOCUMENT_STARTED_AT >= ackStartedAt - 250 &&
-        readyDialogueVisible(text);
-      if (freshPostAckReady) {
-        await clearRewardTransaction();
-      } else if (!rewardSurfaceHere) {
+      // Post-XP watchdog. v0.6.47 accidentally reintroduced a regression here by
+      // clearing pendingReward after 30 seconds even while the real «Спасибо.»
+      // page was still open. That allowed another frame to display «Иду к Фее» and
+      // left the acknowledgement dialog orphaned.
+      //
+      // New rule: after 30 seconds NEVER skip a visible acknowledgement. The frame
+      // that owns the verified «Спасибо.» retries the native click. Other frames
+      // keep the transaction locked while the reward-surface heartbeat is fresh.
+      if (captured && now - capturedAt >= REWARD_ACK_FAILSAFE_MS) {
+        if (capturedThanksHere) {
+          if (!activeAckStartedAt) {
+            const clicked = await clickRewardThanks('Фея: «Спасибо» висит больше 30 с · повторно подтверждаю');
+            if (!clicked) {
+              await setStatus('Фея: опыт сохранен · «Спасибо» всё ещё открыто, повторяю подтверждение');
+            }
+          } else {
+            await setStatus('Фея: опыт сохранен · закрываю «Спасибо»');
+          }
+          scheduleScan(350);
+          return;
+        }
+
+        const surfaceLastSeenAt = Number(runtime.rewardSurfaceLastSeenAt || 0);
+        const rewardSurfaceAliveElsewhere = surfaceLastSeenAt > 0 &&
+          now - surfaceLastSeenAt <= REWARD_SURFACE_HEARTBEAT_MS;
+        if (rewardSurfaceAliveElsewhere) {
+          scheduleScan(300);
+          return;
+        }
+
+        // Finite terminal path for the opposite failure: XP was captured, but the
+        // reward document then disappeared completely and no verified reward/ACK
+        // surface has been seen for a long time. Preserve the captured XP and
+        // release only the stale transaction after two minutes.
+        if (now - capturedAt >= REWARD_CAPTURE_ORPHAN_FAILSAFE_MS) {
+          await clearRewardTransaction();
+          await setStatus('Фея: опыт сохранен, окно награды исчезло больше чем на 2 мин · освобождаю цикл');
+          scheduleScan(350);
+          return;
+        }
+
+        // Do not let an unrelated frame overwrite the status from the reward frame
+        // or open Fairy while we are waiting for the acknowledgement surface.
+        scheduleScan(300);
+        return;
+      }
+
+      if (!rewardSurfaceHere) {
         if (captured) {
-          // This is an unrelated Haddan frame. Do not let it overwrite the global
-          // status produced by the actual reward/ACK frame. In 0.6.42 this made a
-          // successfully captured reward look permanently stuck on
-          // «жду Спасибо в окне награды», even while another frame owned the ACK.
+          // An unrelated Haddan frame must stay silent while another frame owns
+          // the current reward/ACK surface.
         } else if (rewardAge >= 15000) {
           await setStatus(`Фея: нет строки награды для ${runtime.pendingRewardResource || 'ресурса'} ${runtime.pendingRewardQuantity || ''} шт. — «Спасибо» не нажимаю`);
         } else {
@@ -1601,7 +1892,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     // frame reported «жду штатный автобой». battleActive is now set only when a
     // real fight surface is observed above.
     if (readyDialogueVisible(text)) {
-      if (runtime.fairyWaitUntil) await saveRuntime({ fairyWaitUntil: 0 });
+      if (runtime.fairyWaitUntil) await saveRuntime({ fairyWaitUntil: 0, fairyWaitKind: '' });
 
       const start = findQaAction(100, /да.*нужны.*новые\s+травы/i);
       if (start) {
@@ -1865,10 +2156,11 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       // second wait, so force one clean server resync: mark all currently loaded
       // documents stale and close/reopen Fairy. A fresh page can then report the
       // real remaining cooldown (if any).
-      if (Number(storedRuntime.fairyCooldownLogicVersion || 0) < 2) {
+      if (Number(storedRuntime.fairyCooldownLogicVersion || 0) < 3) {
         await saveRuntime({
-          fairyCooldownLogicVersion: 2,
+          fairyCooldownLogicVersion: 3,
           fairyWaitUntil: 0,
+          fairyWaitKind: '',
           fairyCooldownMinDocumentStartedAt: Date.now(),
           fairyCooldownTransitionUntil: Date.now() + 2500
         });
@@ -1893,18 +2185,19 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         });
       }
 
-      // v0.6.45 separates an ACK that was merely scheduled from a native
-      // «Спасибо.» click that was actually attempted. Clear only the ACK substate
-      // once on upgrade; keep pendingReward/captured XP intact so an already-open
-      // reward page can be recovered immediately.
-      if (Number(storedRuntime.rewardAckLogicVersion || 0) < 3) {
+      // v0.6.52 restores the strict reward transaction lock and adds a verified
+      // reward-surface heartbeat. Clear only the ACK substate once on upgrade;
+      // keep pendingReward and captured XP intact so an already-open «Спасибо.»
+      // can be recovered immediately.
+      if (Number(storedRuntime.rewardAckLogicVersion || 0) < 4) {
         await saveRuntime({
-          rewardAckLogicVersion: 3,
+          rewardAckLogicVersion: 4,
           rewardAckScheduledAt: 0,
           rewardAckStartedAt: 0,
           rewardAckFrameKey: '',
           rewardAckDocumentStartedAt: 0,
-          rewardAcknowledgingUntil: 0
+          rewardAcknowledgingUntil: 0,
+          rewardSurfaceLastSeenAt: 0
         });
       }
     } catch (_) {}

@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.6.54
+- Fixed an `id=9000` action collision in Fairy dialogs: Haddan uses the same QA id for both reward `Спасибо.` and cooldown `Хорошо, я подойду позже.`.
+- QA actions with a text matcher now require BOTH the expected `qa.php?id` and the expected visible label; the helper no longer falls back to an arbitrary action sharing the same id.
+- Prevents the cooldown page from being misdetected as an orphan reward acknowledgement, which caused `найдено незакрытое «Спасибо»` / `Иду к Фее` to alternate and repeatedly reopen Fairy.
+
+## 0.6.53 - Fairy cooldown frame/status fix
+
+- Cooldown/ready-dialog detection now requires the live `qa.php` context (or the exact actionable QA control), so old NPC lines retained in the room chat no longer masquerade as an open Fairy dialog.
+- Added `fairyWaitKind` to distinguish a real parsed server cooldown from the local 60-second watchdog used when Haddan replies with an unparseable `?` timer.
+- All frames now render the same status for an unknown timer instead of alternating between `время таймера не распознано` and `ждать`.
+- One-time cooldown runtime migration forces a clean resync from 0.6.52 and older.
+
+## 0.6.52
+
+- Fixed a regression introduced by the v0.6.47 post-reward timeout: captured XP no longer causes `pendingReward` to be blindly cleared after 30 seconds while the real native `Спасибо.` page is still open.
+- After 30 seconds, a verified current `Спасибо.` is actively retried instead of skipped. Unrelated frames keep the global reward transaction locked and cannot reopen Fairy.
+- Added a verified reward-surface heartbeat so other Haddan frames can tell that the reward/ACK page is still alive elsewhere.
+- Added a finite 2-minute fallback only for the opposite case where XP was captured but the reward surface has genuinely disappeared; captured XP evidence is preserved.
+- Added orphan-`Спасибо.` recovery for upgrades from affected versions: if `pendingReward` was already lost but a recent captured reward exists and the real `qa.php?id=9000` acknowledgement is still visible, the extension closes it automatically instead of staying at `Иду к Фее`.
+
+## 0.6.51
+
+- Added a 15-second watchdog for a lost Fairy resource-choice navigation.
+- If `pendingReward` was armed but the exact originating `Выбери себе` document is still visible after 15 seconds and no reward was captured, only the stale reward transaction lock is cleared and the same choice is retried.
+- The watchdog is bound to both the original frame key and document start time, so an old choice frame cannot cancel a legitimate reward page in another/new document.
+
+## 0.6.50
+
+- Added watchdogs for the remaining automation states that could wait indefinitely without a server transition.
+- A stale `battleActive` lock is now released when no real battle surface refreshes its deadline for 60 seconds.
+- The exact `Продолжить бой` recovery page no longer stops forever after two ignored clicks; the bounded retry cycle is restarted after 15 seconds.
+- A Fairy reward transaction that produces neither an XP line nor a valid `Спасибо.` is reset after 90 seconds so a lost resource click cannot lock the whole cycle.
+- An unparseable Fairy cooldown timer is rechecked after one minute and the stale dialogue is released instead of waiting forever.
+- A CAPTCHA that was submitted but remains visible is retried up to the existing 3-attempt limit; after that the UI explicitly switches to manual recovery instead of staying forever at `жду переход страницы`.
+- Generic delayed auto-clicks now have a trailing rescan watchdog, including throttled-click recovery, so an ignored native click cannot become the last FSM scan.
+- Market/profile HTTP requests now have finite timeouts so `Обновить цены` cannot remain permanently in `Сканирование…` on a stalled request.
+
 ## 0.6.49
 
 - Added a 30-second fallback for a current Fairy reward dialog that shows the exact native `Спасибо.` link but never exposes the learnable resource + quantity + XP line.

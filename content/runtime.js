@@ -3,7 +3,8 @@
 
   const DEFAULT_RUNTIME = Object.freeze({
     fairyWaitUntil: 0,
-    fairyCooldownLogicVersion: 2,
+    fairyWaitKind: '',
+    fairyCooldownLogicVersion: 3,
     fairyCooldownMinDocumentStartedAt: 0,
     fairyCooldownTransitionUntil: 0,
     dialogInitRecoveryUntil: 0,
@@ -26,12 +27,13 @@
     lastRewardCapturedResourceId: '',
     lastRewardCapturedQuantity: 0,
     rewardAcknowledgingUntil: 0,
-    rewardAckLogicVersion: 3,
+    rewardAckLogicVersion: 4,
     rewardAckScheduledAt: 0,
     rewardAckStartedAt: 0,
     rewardAckFrameKey: '',
     rewardAckDocumentStartedAt: 0,
     rewardThanksSeenAt: 0,
+    rewardSurfaceLastSeenAt: 0,
     battleExpectedUntil: 0,
     battleStartLogicVersion: 2,
     battleStartRequestedAt: 0,
@@ -72,6 +74,7 @@
       rewardAckFrameKey: '',
       rewardAckDocumentStartedAt: 0,
       rewardThanksSeenAt: 0,
+      rewardSurfaceLastSeenAt: 0,
       ...extra
     };
   }
