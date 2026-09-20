@@ -37,6 +37,19 @@
     'Великий Магистр'
   ]);
 
+  // Resource progression tiers from the Жнец table. These are intentionally
+  // not the RESOURCES array indexes: Мандрагора and Зеленая Массивка belong to
+  // the same tier and therefore have the same model coefficient.
+  const REAPER_RESOURCE_TIERS = Object.freeze({
+    '1044': 0, // Мухожор
+    '5900': 1, // Подсолнух
+    '5901': 2, // Капустница
+    '1045': 3, // Мандрагора
+    '5902': 3, // Зеленая Массивка
+    '5903': 4, // Колючник Черный
+    '5904': 5  // Гертаниум
+  });
+
   // Official Haddan Жнец profession thresholds. `exp` is the total professional
   // experience at which the rank becomes active. Keeping the table locally lets
   // one bot session advance the rank without re-fetching the character profile.
@@ -132,6 +145,26 @@
   function validReaperExp(value) {
     const exp = Number(value);
     return Number.isFinite(exp) && exp >= 0 && exp <= MAX_REAPER_EXP ? exp : null;
+  }
+
+  // Current experimental model for the Жнец reward XP. Low ranks are excluded
+  // on purpose because the collected data suggests a separate beginner rule.
+  // Keep the fractional value: comparing it with the actual integer reward is
+  // useful for reconstructing the server-side random/rounding behaviour.
+  function expectedProfessionalExp(resourceId, quantity, rankKey) {
+    const qty = Number(quantity);
+    if (!Number.isFinite(qty) || qty <= 0) return null;
+
+    const tier = REAPER_RESOURCE_TIERS[String(resourceId)];
+    if (!Number.isInteger(tier)) return null;
+
+    const rank = canonicalReaperRank(rankKey);
+    const rankIndex = rank ? REAPER_RANKS.indexOf(rank) : -1;
+    if (rankIndex < 3) return null;
+
+    const raw = qty * (tier + 6 - rankIndex) / (rankIndex + 1);
+    const capped = Math.min(MAX_REAPER_EXP, Math.max(1, raw));
+    return Math.round(capped * 10000) / 10000;
   }
 
   function sampleWeight(sample) {
@@ -260,6 +293,7 @@
     STORAGE_KEYS,
     RESOURCES,
     REAPER_RANKS,
+    REAPER_RESOURCE_TIERS,
     REAPER_RANK_THRESHOLDS,
     DEFAULT_AUTOMATION,
     MAX_REAPER_EXP,
@@ -269,6 +303,7 @@
     reaperProgress,
     normalizeAutomation,
     validReaperExp,
+    expectedProfessionalExp,
     sampleWeight,
     weightedMedian,
     exactExperienceSummary,

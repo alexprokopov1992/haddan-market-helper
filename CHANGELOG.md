@@ -1,3 +1,10 @@
+## 0.6.61
+
+- Added experimental formula output `expectedExp` to every stored Жнец XP sample.
+- Existing stored samples are backfilled automatically on extension startup; low-rank samples (`Новичок`, `Косарь`, `Травник`) receive `expectedExp: null` while their separate rule remains unknown.
+- The current model uses resource progression tiers rather than raw resource-array indexes, so `Мандрагора` and `Зеленая Массивка` share the same tier.
+- `expectedExp` keeps a fractional expected value (capped to 1..10) so actual integer rewards can be compared against the model while reconstructing server-side rounding/randomness.
+
 ## 0.6.60
 
 - START now always begins a clean runtime session and clears inherited Fairy cooldowns, battle timers, reward/ACK locks, choice locks, CAPTCHA pause timestamps and other transient state.

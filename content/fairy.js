@@ -13,6 +13,7 @@
     reaperProgress,
     normalizeAutomation,
     validReaperExp,
+    expectedProfessionalExp,
     sampleWeight,
     weightedMedian
   } = window.HMH_SHARED;
@@ -110,6 +111,23 @@
 
   function profileRankKey() {
     return normalizeText(reaperProfile?.rank || automation.reaperRank || '').toLowerCase() || 'unknown';
+  }
+
+  function addExpectedExpToSamples(raw) {
+    const source = raw && typeof raw === 'object' ? raw : { samples: [] };
+    const samples = Array.isArray(source.samples) ? source.samples : [];
+    let changed = false;
+    const enriched = samples.map((item) => {
+      const expectedExp = expectedProfessionalExp(item?.resourceId, item?.quantity, item?.rankKey);
+      if (Object.prototype.hasOwnProperty.call(item || {}, 'expectedExp') && item.expectedExp === expectedExp) {
+        return item;
+      }
+      changed = true;
+      return { ...item, expectedExp };
+    });
+
+    if (!changed) return { value: source, changed: false };
+    return { value: { ...source, samples: enriched }, changed: true };
   }
 
   function samplesFor(resourceId) {
@@ -416,6 +434,7 @@
       quantity: Number(observation.quantity),
       exp: safeExp,
       rankKey,
+      expectedExp: expectedProfessionalExp(observation.resourceId, observation.quantity, rankKey),
       professionExp: Number.isFinite(Number(reaperProfile?.exp)) ? Number(reaperProfile.exp) : null,
       ts: Date.now(),
       count: 1
@@ -434,10 +453,12 @@
       existing.ts = sample.ts;
       existing.resourceName = sample.resourceName;
       existing.professionExp = sample.professionExp;
+      existing.expectedExp = sample.expectedExp;
     } else {
       samples.push(sample);
     }
-    reaperExp = { samples: samples.slice(-MAX_REAPER_EXP_RECORDS), updatedAt: Date.now(), maxExp: MAX_REAPER_EXP };
+    const enriched = addExpectedExpToSamples({ samples: samples.slice(-MAX_REAPER_EXP_RECORDS) });
+    reaperExp = { ...enriched.value, updatedAt: Date.now(), maxExp: MAX_REAPER_EXP };
     const advancedProfile = advanceReaperSession(safeExp, transactionKey);
     try {
       // Keep FAIRY_OFFERS intact. Clearing it here made the panel lose the exact
@@ -975,7 +996,13 @@
       reaperProfile = stored[REAPER_PROFILE_KEY] || null;
       automation = normalizeAutomation(stored[AUTOMATION_KEY] || {}, reaperProfile?.rank || '');
       runtime = { pauseReason: '', ...(stored[BOT_RUNTIME_KEY] || {}) };
-      reaperExp = stored[REAPER_EXP_KEY] || { samples: [] };
+      const restoredExp = addExpectedExpToSamples(stored[REAPER_EXP_KEY] || { samples: [] });
+      reaperExp = restoredExp.value;
+      // One top-frame migration persists expectedExp for historical rows. Other
+      // frames receive the updated object through chrome.storage.onChanged.
+      if (restoredExp.changed && window.top === window) {
+        await chrome.storage.local.set({ [REAPER_EXP_KEY]: reaperExp });
+      }
       if (cached?.data) {
         market = {
           updatedAt: cached.updatedAt || null,
