@@ -2,6 +2,7 @@
 
 let creatingOffscreen = null;
 const captchaAlertByTab = new Map();
+const reloadByTab = new Map();
 const DEBUG_LOGS = false;
 
 function debugLog(...args) {
@@ -137,6 +138,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'HMH_RELOAD_TAB') {
+    const senderUrl = String(sender.url || sender.tab?.url || '');
+    const tabId = sender.tab?.id;
+    if (!/^https:\/\/(?:www\.|ru\.)?haddan\.ru\//i.test(senderUrl) || tabId == null) {
+      sendResponse?.({ ok: false, error: 'invalid-sender' });
+      return;
+    }
+
+    const now = Date.now();
+    const last = Number(reloadByTab.get(tabId) || 0);
+    if (now - last < 10000) {
+      sendResponse?.({ ok: true, reloaded: false, deduped: true });
+      return;
+    }
+    reloadByTab.set(tabId, now);
+
+    chrome.tabs.reload(tabId).then(() => {
+      sendResponse?.({ ok: true, reloaded: true });
+    }).catch((error) => {
+      reloadByTab.delete(tabId);
+      sendResponse?.({ ok: false, error: String(error?.message || error) });
+    });
+    return true;
+  }
+
   if (message.type === 'HMH_CAPTCHA_ALERT') {
     const tabId = sender.tab?.id;
     const now = Date.now();
@@ -195,4 +221,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-chrome.tabs?.onRemoved?.addListener((tabId) => captchaAlertByTab.delete(tabId));
+chrome.tabs?.onRemoved?.addListener((tabId) => {
+  captchaAlertByTab.delete(tabId);
+  reloadByTab.delete(tabId);
+});

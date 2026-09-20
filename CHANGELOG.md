@@ -1,3 +1,10 @@
+## 0.6.59
+
+- Added a 60-second continuous-battle watchdog. If the real Haddan battle interface remains active for more than one minute, the extension reloads the entire Haddan tab rather than only an iframe.
+- Battle start time is persisted across frames; normal result/return states clear it.
+- Full-tab reload requests are deduplicated in the service worker so several Haddan frames cannot create a reload storm.
+- After a timeout reload the battle watchdog starts a fresh 60-second window; if Haddan is still genuinely stuck, another reload may occur only after that full minute.
+
 ## 0.6.58
 
 - Low-rank reward parser now accepts both `1 опыт Жнеца` and plural `N опыта Жнеца`.

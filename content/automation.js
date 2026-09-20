@@ -49,6 +49,8 @@
   const CAPTCHA_SUBMIT_STALL_MS = 12000;
   const UNKNOWN_COOLDOWN_RECHECK_MS = 60000;
   const CONTINUE_BATTLE_RECOVERY_RETRY_MS = 15000;
+  const BATTLE_PAGE_RELOAD_AFTER_MS = 60000;
+  const BATTLE_PAGE_RELOAD_LOCK_MS = 15000;
   const CLICK_WATCHDOG_MS = 1200;
   const DEBUG_LOGS = false;
 
@@ -909,12 +911,23 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
   }
 
   async function clearBattleActive() {
-    if (runtime.battleActive || runtime.battleRecoveryLastClickAt || runtime.battleRecoveryAttempts) {
+    if (runtime.battleActive || runtime.battleStartedAt || runtime.battleReloadingUntil || runtime.battleRecoveryLastClickAt || runtime.battleRecoveryAttempts) {
       await saveRuntime({
         battleActive: false,
+        battleStartedAt: 0,
+        battleReloadingUntil: 0,
         battleRecoveryLastClickAt: 0,
         battleRecoveryAttempts: 0
       });
+    }
+  }
+
+  async function requestFullTabReload(reason = 'battle-timeout') {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'HMH_RELOAD_TAB', reason });
+      return !!response?.ok;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -1414,9 +1427,12 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       // The extension no longer conducts combat. Haddan's built-in autobattle owns
       // every combat action; we only keep a cross-frame lock so stale Fairy/chat
       // frames cannot start a second interaction while the fight is running.
-      if (!runtime.battleActive || runtime.battleRecoveryLastClickAt || runtime.battleRecoveryAttempts) {
+      let battleStartedAt = Number(runtime.battleStartedAt || 0);
+      if (!runtime.battleActive || !battleStartedAt || runtime.battleRecoveryLastClickAt || runtime.battleRecoveryAttempts) {
+        battleStartedAt = battleStartedAt || now;
         await saveRuntime({
           battleActive: true,
+          battleStartedAt,
           battleStartRequestedAt: 0,
           battleStartRequestFrameKey: '',
           battleStartRequestDocumentStartedAt: 0,
@@ -1426,7 +1442,34 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         });
       }
 
-      await setStatus('Бой: жду штатный автобой Haddan');
+      const reloadLockUntil = Number(runtime.battleReloadingUntil || 0);
+      if (reloadLockUntil > now) {
+        await setStatus(`Бой: страница обновляется · повторная проверка через ${formatCountdown(reloadLockUntil - now)}`);
+        scheduleScan(500);
+        return;
+      }
+
+      const battleAge = now - battleStartedAt;
+      if (battleStartedAt && battleAge >= BATTLE_PAGE_RELOAD_AFTER_MS) {
+        // Restart the watchdog before asking the service worker to reload the whole
+        // Haddan tab. This prevents all_frames scripts from creating a reload storm.
+        await saveRuntime({
+          battleActive: true,
+          battleStartedAt: now,
+          battleReloadingUntil: now + BATTLE_PAGE_RELOAD_LOCK_MS,
+          battleExpectedUntil: now + 60000
+        });
+        await setStatus('Бой идет больше 1:00 · обновляю страницу');
+        const reloadRequested = await requestFullTabReload('battle-over-60s');
+        if (!reloadRequested) {
+          await saveRuntime({ battleReloadingUntil: 0 });
+          await setStatus('Бой идет больше 1:00 · не удалось обновить страницу, повторю');
+          scheduleScan(3000);
+        }
+        return;
+      }
+
+      await setStatus(`Бой: жду штатный автобой Haddan · ${formatCountdown(BATTLE_PAGE_RELOAD_AFTER_MS - battleAge)} до обновления`);
       scheduleScan(500);
       return;
     }
@@ -1443,6 +1486,8 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         await clearBattleActive();
         await saveRuntime({
           battleExpectedUntil: 0,
+          battleStartedAt: 0,
+          battleReloadingUntil: 0,
           battleStartRequestedAt: 0,
           battleStartRequestFrameKey: '',
           battleStartRequestDocumentStartedAt: 0,
@@ -2200,6 +2245,8 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
           battleStartRequestDocumentStartedAt: 0,
           battleStartAttempts: 0,
           battleActive: false,
+          battleStartedAt: 0,
+          battleReloadingUntil: 0,
           battleRecoveryLastClickAt: 0,
           battleRecoveryAttempts: 0
         });

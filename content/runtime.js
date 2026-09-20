@@ -41,6 +41,8 @@
     battleStartRequestDocumentStartedAt: 0,
     battleStartAttempts: 0,
     battleActive: false,
+    battleStartedAt: 0,
+    battleReloadingUntil: 0,
     battleRecoveryLastClickAt: 0,
     battleRecoveryAttempts: 0,
     pauseReason: '',

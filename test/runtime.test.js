@@ -16,6 +16,8 @@ test('normalizeRuntime keeps known values and fills missing defaults', () => {
   assert.equal(normalized.pendingRewardResource, 'Капустница');
   assert.equal(normalized.rewardChoiceAt, 123);
   assert.equal(normalized.battleActive, false);
+  assert.equal(normalized.battleStartedAt, 0);
+  assert.equal(normalized.battleReloadingUntil, 0);
   assert.equal(normalized.fairyCooldownLogicVersion, 3);
   assert.equal(normalized.fairyWaitKind, '');
   assert.equal(normalized.dialogInitRecoveryUntil, 0);
