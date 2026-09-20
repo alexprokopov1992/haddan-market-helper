@@ -25,7 +25,11 @@
     lastRewardCapturedResourceId: '',
     lastRewardCapturedQuantity: 0,
     rewardAcknowledgingUntil: 0,
+    rewardAckLogicVersion: 3,
+    rewardAckScheduledAt: 0,
     rewardAckStartedAt: 0,
+    rewardAckFrameKey: '',
+    rewardAckDocumentStartedAt: 0,
     battleExpectedUntil: 0,
     battleStartLogicVersion: 2,
     battleStartRequestedAt: 0,
@@ -61,7 +65,10 @@
       rewardChoiceDocumentStartedAt: 0,
       rewardChoiceFrameKey: '',
       rewardAcknowledgingUntil: 0,
+      rewardAckScheduledAt: 0,
       rewardAckStartedAt: 0,
+      rewardAckFrameKey: '',
+      rewardAckDocumentStartedAt: 0,
       ...extra
     };
   }

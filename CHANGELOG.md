@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.45
+
+- Fixed the reward `Спасибо.` loop caused by using a delayed stale DOM node: Haddan can refresh/replace the `qa.php` contents before the generic delayed click fires.
+- Reward acknowledgement now re-finds the live native `Спасибо.` link immediately before clicking it.
+- Split `rewardAckScheduledAt` from `rewardAckStartedAt`; an ACK is no longer treated as executed merely because it was queued.
+- Removed the unsafe idle-Poliana acknowledgement heuristic that could clear `pendingReward` while `Спасибо.` was still visibly open.
+- Cooldown completion is now tied to the frame/document that actually attempted the reward ACK; manual ACK recovery requires a new cooldown document after the matching XP capture.
+- Added a one-time ACK-state migration so upgrading while stuck on an open `Спасибо.` can recover without discarding the already captured XP.
+
 ## 0.6.44
 
 - Fixed a reward transaction race where the top Poliana frame could treat an idle page as proof that `Спасибо.` had already been acknowledged.

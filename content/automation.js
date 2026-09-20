@@ -920,6 +920,69 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     return true;
   }
 
+  async function clickRewardThanks(status) {
+    const now = Date.now();
+    const scheduledAt = Number(runtime.rewardAckScheduledAt || 0);
+    const startedAt = Number(runtime.rewardAckStartedAt || 0);
+
+    // Reward ACK is special: Haddan can replace the qa.php DOM while it is open.
+    // Generic clickAction() keeps a reference to the old <a> until its delayed
+    // timeout fires; if the page refreshes in that gap the element becomes
+    // disconnected and the click is silently lost.  Re-find the native
+    // «Спасибо.» immediately before clicking and distinguish a scheduled ACK
+    // from a click that was actually attempted.
+    if (startedAt) return false;
+    if (scheduledAt && now - scheduledAt < 1500) return false;
+
+    await saveRuntime({
+      rewardAckScheduledAt: now,
+      rewardAcknowledgingUntil: now + 3000
+    });
+    await setStatus(status);
+
+    let target = findExactThanksAction();
+    if (!target || !target.isConnected || !settings.running || !runtime.pendingReward) {
+      await saveRuntime({ rewardAckScheduledAt: 0, rewardAcknowledgingUntil: 0 });
+      return false;
+    }
+
+    const ackStartedAt = Date.now();
+    await saveRuntime({
+      rewardAckScheduledAt: 0,
+      rewardAckStartedAt: ackStartedAt,
+      rewardAckFrameKey: frameContextKey(),
+      rewardAckDocumentStartedAt: DOCUMENT_STARTED_AT,
+      rewardAcknowledgingUntil: ackStartedAt + 3000
+    });
+
+    // Storage writes above are asynchronous and the page may have refreshed in
+    // the meantime. Never click the stale node captured before them.
+    target = findExactThanksAction();
+    if (!target || !target.isConnected || !settings.running || !runtime.pendingReward) {
+      await saveRuntime({
+        rewardAckStartedAt: 0,
+        rewardAckFrameKey: '',
+        rewardAckDocumentStartedAt: 0,
+        rewardAcknowledgingUntil: 0
+      });
+      return false;
+    }
+
+    try {
+      target.click();
+      return true;
+    } catch (e) {
+      console.warn('[Haddan Market Helper] reward ACK click failed', e);
+      await saveRuntime({
+        rewardAckStartedAt: 0,
+        rewardAckFrameKey: '',
+        rewardAckDocumentStartedAt: 0,
+        rewardAcknowledgingUntil: 0
+      });
+      return false;
+    }
+  }
+
   async function scanAutomation() {
     scanTimer = null;
     if (!settings.running || settings.captureFairy || !settings.collectResources) return;
@@ -1111,14 +1174,19 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       // that this particular reward flow has completed.
       if (runtime.pendingReward) {
         const ackStartedAt = Number(runtime.rewardAckStartedAt || 0);
-        const sameChoiceFrame = !runtime.rewardChoiceFrameKey || runtime.rewardChoiceFrameKey === frameContextKey();
-        const freshAfterAck = ackStartedAt && sameChoiceFrame && DOCUMENT_STARTED_AT >= ackStartedAt - 250;
-        // If the user manually clicked «Спасибо.», there is no rewardAckStartedAt.
-        // A new cooldown document in the SAME iframe after the choice is enough to
-        // recover the FSM without letting an unrelated stale iframe release it.
-        const manualAckAfterChoice = !ackStartedAt && sameChoiceFrame &&
-          DOCUMENT_STARTED_AT >= Number(runtime.rewardChoiceAt || 0) - 250;
-        if (!freshAfterAck && !manualAckAfterChoice) {
+        const ackFrameKey = String(runtime.rewardAckFrameKey || '');
+        const sameAckFrame = !ackFrameKey || ackFrameKey === frameContextKey();
+        const freshAfterAck = ackStartedAt && sameAckFrame && DOCUMENT_STARTED_AT >= ackStartedAt - 250;
+
+        // Manual recovery: if the user clicked «Спасибо.» themselves there is no
+        // ACK attempt marker. Accept only a genuinely new qa.php cooldown document
+        // created after the matching reward was captured. A stale cooldown frame
+        // that merely shares the old resource-choice frame index is not enough.
+        const capturedAt = Number(runtime.lastRewardCapturedAt || 0);
+        const manualAckAfterCapture = !ackStartedAt && capturedAt &&
+          /\/room\/func\/qa\.php$/i.test(location.pathname) &&
+          DOCUMENT_STARTED_AT >= capturedAt - 250;
+        if (!freshAfterAck && !manualAckAfterCapture) {
           const captured = Number(runtime.lastRewardCapturedAt || 0) >= Number(runtime.rewardChoiceAt || 0);
           await setStatus(captured
             ? 'Фея: опыт сохранен, жду завершение «Спасибо»'
@@ -1255,8 +1323,12 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       // from an idle Poliana page only after an ACK was actually scheduled.
       const activeAckStartedAt = Number(runtime.rewardAckStartedAt || 0);
       const activeAckAge = activeAckStartedAt ? now - activeAckStartedAt : Infinity;
-      const ackConfirmedByIdle = activeAckStartedAt && activeAckAge >= 1200 && likelyIdlePolianaAfterReward();
-      if (captured && (rewardAckEchoVisible(text) || ackConfirmedByIdle)) {
+
+      // Never use an idle top-level Poliana page as proof that «Спасибо.» was
+      // accepted. The reward qa.php iframe can still be visibly open at the same
+      // time. Only a real post-click server echo may release the transaction here;
+      // the normal path is the fresh cooldown document handled above.
+      if (captured && activeAckStartedAt && activeAckAge >= 250 && rewardAckEchoVisible(text)) {
         await clearRewardTransaction();
         scheduleScan(250);
         return;
@@ -1291,15 +1363,28 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       // If an acknowledgement was scheduled but the page never transitioned,
       // release only the ACK sub-lock and let the same verified reward retry.
       // pendingReward itself remains intact, so no stale frame can start a new cycle.
+      const scheduledAckAt = Number(runtime.rewardAckScheduledAt || 0);
+      if (scheduledAckAt && !runtime.rewardAckStartedAt && now - scheduledAckAt > 1500) {
+        await saveRuntime({ rewardAckScheduledAt: 0, rewardAcknowledgingUntil: 0 });
+      }
+
       const acknowledgingUntil = Number(runtime.rewardAcknowledgingUntil || 0);
       if (runtime.rewardAckStartedAt && acknowledgingUntil && now > acknowledgingUntil) {
-        await saveRuntime({ rewardAckStartedAt: 0, rewardAcknowledgingUntil: 0 });
+        await saveRuntime({
+          rewardAckStartedAt: 0,
+          rewardAckFrameKey: '',
+          rewardAckDocumentStartedAt: 0,
+          rewardAcknowledgingUntil: 0
+        });
       }
 
       // Some servers can transition directly to a fresh ready page after the
-      // acknowledgement. Accept that only from a document created after the ACK.
+      // acknowledgement. Accept that only from the frame that actually attempted
+      // the native «Спасибо.» click and from a document created after that click.
       const ackStartedAt = Number(runtime.rewardAckStartedAt || 0);
-      const freshPostAckReady = ackStartedAt &&
+      const ackFrameKey = String(runtime.rewardAckFrameKey || '');
+      const sameAckFrame = !ackFrameKey || ackFrameKey === frameContextKey();
+      const freshPostAckReady = ackStartedAt && sameAckFrame &&
         DOCUMENT_STARTED_AT >= ackStartedAt - 250 &&
         readyDialogueVisible(text);
       if (freshPostAckReady) {
@@ -1418,29 +1503,16 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       }
 
       if (!runtime.rewardAckStartedAt) {
-        // Keep the real Haddan reward page visible for a moment. This gives the
-        // game's own chat/log enough time to record the Fairy NPC message before
-        // the acknowledgement navigates the iframe away. Mark ACK as started only
-        // after clickAction actually accepted/scheduled the click; otherwise a
-        // temporary click-throttle could create a permanent ACK deadlock.
-        const clicked = await clickAction(
-          exactThanks,
-          'fairy-thanks-exact-reward',
-          `Фея: +${exactReward.exp} опыта Жнеца · опыт сохранен`,
-          1800
-        );
-        if (clicked) {
-          const ackStartedAt = Date.now();
-          await saveRuntime({
-            rewardAckStartedAt: ackStartedAt,
-            rewardAcknowledgingUntil: ackStartedAt + 12000
-          });
-        } else {
+        const clicked = await clickRewardThanks(`Фея: +${exactReward.exp} опыта Жнеца · подтверждаю «Спасибо»`);
+        if (!clicked) {
           await setStatus(`Фея: +${exactReward.exp} опыта сохранено · жду возможность подтвердить «Спасибо»`);
+          scheduleScan(250);
+        } else {
           scheduleScan(350);
         }
       } else {
         await setStatus(`Фея: +${exactReward.exp} опыта сохранено · закрываю награду`);
+        scheduleScan(350);
       }
       return;
     }
@@ -1456,24 +1528,16 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       await clearBattleExpected();
 
       if (!runtime.rewardAckStartedAt) {
-        const clicked = await clickAction(
-          exactThanks,
-          'fairy-thanks-captured-reward',
-          `Фея: опыт сохранен · подтверждаю «Спасибо»`,
-          650
-        );
-        if (clicked) {
-          const ackStartedAt = Date.now();
-          await saveRuntime({
-            rewardAckStartedAt: ackStartedAt,
-            rewardAcknowledgingUntil: ackStartedAt + 12000
-          });
-        } else {
+        const clicked = await clickRewardThanks('Фея: опыт сохранен · подтверждаю «Спасибо»');
+        if (!clicked) {
           await setStatus('Фея: опыт сохранен · жду возможность подтвердить «Спасибо»');
+          scheduleScan(250);
+        } else {
           scheduleScan(350);
         }
       } else {
         await setStatus('Фея: опыт сохранен · закрываю награду');
+        scheduleScan(350);
       }
       return;
     }
@@ -1622,6 +1686,21 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
           battleActive: false,
           battleRecoveryLastClickAt: 0,
           battleRecoveryAttempts: 0
+        });
+      }
+
+      // v0.6.45 separates an ACK that was merely scheduled from a native
+      // «Спасибо.» click that was actually attempted. Clear only the ACK substate
+      // once on upgrade; keep pendingReward/captured XP intact so an already-open
+      // reward page can be recovered immediately.
+      if (Number(storedRuntime.rewardAckLogicVersion || 0) < 3) {
+        await saveRuntime({
+          rewardAckLogicVersion: 3,
+          rewardAckScheduledAt: 0,
+          rewardAckStartedAt: 0,
+          rewardAckFrameKey: '',
+          rewardAckDocumentStartedAt: 0,
+          rewardAcknowledgingUntil: 0
         });
       }
     } catch (_) {}
