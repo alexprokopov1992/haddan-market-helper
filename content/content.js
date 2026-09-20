@@ -250,14 +250,14 @@
       if (!automation.collectResources) {
         autoHintEl.textContent = 'Сбор ресурсов выключен. Плагин ничего не нажимает на Поляне.';
       } else if (automation.resourceMode === 'experience') {
-        autoHintEl.textContent = `Бот активен. Выбор: максимальный опыт для текущего ранга «${reaperProfile?.rank || automation.reaperRank}»; опыт и переход ранга считаются локально.`;
+        autoHintEl.textContent = `Бот активен. Выбор: максимальный прогнозируемый опыт по Tier-модели для ранга «${reaperProfile?.rank || automation.reaperRank}»; при равном опыте выбирается более выгодный ресурс.`;
       } else {
         autoHintEl.textContent = 'Бот активен. Выбор: максимальная рыночная выгода. Бой проводит штатный автобой Haddan.';
       }
     } else if (!automation.collectResources) {
       autoHintEl.textContent = 'Сбор ресурсов выключен. START недоступен, автоматические переходы и клики отключены.';
     } else if (automation.resourceMode === 'experience') {
-      autoHintEl.textContent = 'При START расширение один раз читает профиль Жнеца; дальше опыт и ранг считаются локально по полученным наградам.';
+      autoHintEl.textContent = 'При START расширение читает профиль Жнеца; режим максимального опыта сравнивает дробный прогноз Tier-модели, а при равном прогнозе выбирает более выгодный ресурс.';
     } else {
       autoHintEl.textContent = 'Цены не обновляются автоматически: Фея использует последний рыночный кеш. Бой оставлен штатному автобою Haddan.';
     }

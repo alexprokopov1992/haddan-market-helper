@@ -7,13 +7,13 @@ Chrome MV3 extension for Haddan market scanning and Poliana/Fairy helper automat
 - Shows an in-page market panel on `haddan.ru`.
 - Scans configured herb/resource buy prices and ignores `coin-copper` shops.
 - Caches market data in `chrome.storage.local`.
-- Annotates Fairy resource choices with value and learned profession XP hints.
+- Annotates Fairy resource choices with market value and Tier-model predicted profession XP.
 - Runs a conservative Poliana automation loop:
   - opens Fairy;
   - waits through cooldowns;
   - starts the next collection through Haddan's native flow;
   - does not automate the battle itself;
-  - selects a resource by profit or learned XP;
+  - selects a resource by profit or Tier-model predicted XP; equal predicted XP is resolved by market profit;
   - records the Fairy reward XP before acknowledging `Спасибо.`.
 - Pauses all automation while CAPTCHA is visible.
 - Optionally solves CAPTCHA through `https://runes.spravahub.com.ua/decode` when enabled and an API token is configured.
@@ -75,12 +75,12 @@ Use [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) before publishing a zip. New re
 
 ## Current version
 
-`0.6.67` keeps one universal tier-based Жнец XP model and automatically migrates all stored XP observations to the clean single-model schema.
+`0.6.68` uses the universal tier-based Жнец XP model directly in Fairy choice annotations and in the «Максимальный опыт» decision mode. Equal predicted XP is resolved by market profit.
 
 
 ### Жнец XP model
 
-Version 0.6.67 keeps one universal tier-based model for every known profession rank:
+Version 0.6.68 keeps one universal tier-based model for every known profession rank and uses it directly for Fairy choice predictions:
 
 `expectedExp = clamp(quantity * (resourceTier + 6 - rankIndex) / (rankIndex + 1), 1, 10)`
 

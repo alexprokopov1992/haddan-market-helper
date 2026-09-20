@@ -1,3 +1,10 @@
+## 0.6.68
+
+- Fairy choice annotations now show Tier-model predicted profession XP directly for every offered resource; predictions no longer depend on previously observed reward samples.
+- «Максимальный опыт» now compares the fractional Tier-model `expectedExp` for the current rank and offered quantity.
+- If multiple offers have equal predicted XP, the extension chooses the one with the highest current liquidation/market value; resource name is only the final deterministic tie-breaker.
+- Prediction tooltips show the expected value, integer Min/Max range and current stochastic-rounding `chanceUp` hypothesis.
+
 ## 0.6.67
 
 - Selected the resource-tier Жнец XP model as the single working universal model: `Q * (resourceTier + 6 - rankIndex) / (rankIndex + 1)`, capped to `1..10`.

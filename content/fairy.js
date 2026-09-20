@@ -15,8 +15,7 @@
     validReaperExp,
     expectedProfessionalExpDetails,
     normalizeReaperExpSample,
-    sampleWeight,
-    weightedMedian
+    sampleWeight
   } = window.HMH_SHARED;
   const STORAGE_KEY = STORAGE_KEYS.market;
   const AUTOMATION_KEY = STORAGE_KEYS.automation;
@@ -123,79 +122,32 @@
     return { value: { ...source, samples: normalized }, changed: true };
   }
 
-  function samplesFor(resourceId) {
-    const rankKey = profileRankKey();
-    const samples = Array.isArray(reaperExp?.samples) ? reaperExp.samples : [];
-    let matching = samples.filter((sample) => sample.resourceId === resourceId && sample.rankKey === rankKey);
-    // Until the rank is known, use only observations collected while it was also unknown.
-    if (!matching.length && rankKey === 'unknown') {
-      matching = samples.filter((sample) => sample.resourceId === resourceId && (!sample.rankKey || sample.rankKey === 'unknown'));
-    }
-    return matching;
-  }
-
-
-  function exactExperienceSummary(samples, quantity) {
-    const counts = new Map();
-    let total = 0;
-    let min = Infinity;
-    let max = -Infinity;
-    for (const sample of samples) {
-      if (Number(sample.quantity) !== Number(quantity)) continue;
-      const exp = validReaperExp(sample.exp);
-      if (exp == null) continue;
-      const weight = sampleWeight(sample);
-      counts.set(exp, (counts.get(exp) || 0) + weight);
-      total += weight;
-      min = Math.min(min, exp);
-      max = Math.max(max, exp);
-    }
-    if (!counts.size) return null;
-
-    // Same rank + resource + quantity should normally be deterministic. If old
-    // observations disagree, keep all of them but use the most frequently seen
-    // server value for automatic decisions.
-    const value = [...counts.entries()]
-      .sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0];
-    return { value, min, max, exact: true, samples: total };
-  }
-
   function predictProfessionalExp(resourceId, quantity) {
-    const samples = samplesFor(resourceId);
-    if (!samples.length || !Number.isFinite(quantity) || quantity <= 0) return null;
-
-    // Primary knowledge base: exact empirical mapping
-    // (profession rank, resource, quantity) -> observed XP.
-    const exact = exactExperienceSummary(samples, quantity);
-    if (exact) return exact;
-
-    // For an unseen quantity keep the old approximate hint, but it is explicitly
-    // an estimate derived only from this same resource/rank. Never allow a
-    // prediction above Haddan's hard cap of 10 profession XP.
-    const ratios = samples
-      .map((sample) => {
-        const exp = validReaperExp(sample.exp);
-        const qty = Number(sample.quantity);
-        return { value: exp != null && qty > 0 ? exp / qty : NaN, weight: sampleWeight(sample) };
-      })
-      .filter((entry) => Number.isFinite(entry.value));
-    const ratio = weightedMedian(ratios);
-    if (ratio == null) return null;
+    const details = expectedProfessionalExpDetails(resourceId, quantity, profileRankKey());
+    if (!details) return null;
     return {
-      value: Math.min(MAX_REAPER_EXP, Math.max(0, Math.round(quantity * ratio))),
-      min: null,
-      max: null,
-      exact: false,
-      samples: ratios.reduce((sum, entry) => sum + entry.weight, 0)
+      value: details.value,
+      min: details.min,
+      max: details.max,
+      chanceUp: details.chanceUp,
+      formula: 'tier'
     };
   }
 
   function expDisplay(prediction) {
     if (!prediction) return 'опыт ?';
-    if (prediction.exact && prediction.min !== prediction.max) {
-      return `опыт ${formatNumber(prediction.min, 0)}–${formatNumber(prediction.max, 0)}`;
+    if (prediction.min !== prediction.max) {
+      return `опыт ≈ ${formatNumber(prediction.value, 2)} (${formatNumber(prediction.min, 0)}–${formatNumber(prediction.max, 0)})`;
     }
-    return `${prediction.exact ? 'опыт' : 'опыт ≈'}${formatNumber(prediction.value, 0)}`;
+    return `опыт ${formatNumber(prediction.value, 2)}`;
+  }
+
+  function expDetailsDisplay(prediction) {
+    if (!prediction) return 'прогноз опыта: недоступен';
+    if (prediction.min === prediction.max) {
+      return `прогноз опыта: ${formatNumber(prediction.value, 2)}`;
+    }
+    return `прогноз опыта: ${formatNumber(prediction.value, 2)} · диапазон ${formatNumber(prediction.min, 0)}–${formatNumber(prediction.max, 0)} · шанс ${formatNumber(prediction.max, 0)}: ${formatNumber(prediction.chanceUp * 100, 1)}%`;
   }
 
   async function publishFairyOffers(offers) {
@@ -736,13 +688,7 @@
       const details = [];
       if (valuation.average != null) details.push(`средняя скупка ${formatNumber(valuation.average)} / шт.`);
       if (valuation.uncovered > 0) details.push(`не покрыто ${formatNumber(valuation.uncovered, 0)} шт.`);
-      if (valuedOffer.professionalExp) {
-        details.push(valuedOffer.professionalExp.exact
-          ? `проф. опыт: наблюдался ${valuedOffer.professionalExp.samples}×`
-          : `проф. опыт: оценка по ${valuedOffer.professionalExp.samples} наблюдениям`);
-      } else {
-        details.push('проф. опыт: данных пока нет');
-      }
+      details.push(expDetailsDisplay(valuedOffer.professionalExp));
       details.push(`уровень Жнеца: ${reaperProfile?.rank || automation.reaperRank}`);
       details.push(formatAge(market.updatedAt));
       addVisualAnnotation(link, label, `Haddan Market Helper: ${details.join(' · ')}`, isBest);
@@ -837,8 +783,8 @@
     let statusText;
     if (automation.resourceMode === 'experience') {
       statusText = bestOffer.experienceFallback
-        ? `Фея: нет данных опыта (${automation.reaperRank}), беру по выгоде · ${bestOffer.resourceName}`
-        : `Фея: ${bestOffer.resourceName} · опыт ${formatNumber(expValue, 0)}${value != null ? ` · ≈ ${formatNumber(value)} мн` : ''}`;
+        ? `Фея: прогноз опыта недоступен (${reaperProfile?.rank || automation.reaperRank}), беру по выгоде · ${bestOffer.resourceName}`
+        : `Фея: ${bestOffer.resourceName} · прогноз опыта ${formatNumber(expValue, 2)}${value != null ? ` · ≈ ${formatNumber(value)} мн` : ''}`;
     } else {
       statusText = `Фея: ${bestOffer.resourceName} ≈ ${formatNumber(value)} мн`;
     }
