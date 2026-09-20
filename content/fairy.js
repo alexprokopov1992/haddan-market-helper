@@ -14,7 +14,7 @@
     normalizeAutomation,
     validReaperExp,
     expectedProfessionalExpDetails,
-    universalExpectedProfessionalExpDetails,
+    normalizeReaperExpSample,
     sampleWeight,
     weightedMedian
   } = window.HMH_SHARED;
@@ -117,52 +117,10 @@
   function addExpectedExpToSamples(raw) {
     const source = raw && typeof raw === 'object' ? raw : { samples: [] };
     const samples = Array.isArray(source.samples) ? source.samples : [];
-    let changed = false;
-    const enriched = samples.map((item) => {
-      const expected = expectedProfessionalExpDetails(item?.resourceId, item?.quantity, item?.rankKey);
-      const expectedExp = expected?.value ?? null;
-      const expectedExpMin = expected?.min ?? null;
-      const expectedExpMax = expected?.max ?? null;
-      const expectedChanceUp = expected?.chanceUp ?? null;
-      const universal = universalExpectedProfessionalExpDetails(item?.resourceId, item?.quantity, item?.rankKey);
-      const universalExpectedExp = universal?.value ?? null;
-      const universalExpectedExpMin = universal?.min ?? null;
-      const universalExpectedExpMax = universal?.max ?? null;
-      const chanseUp = universal?.chanceUp ?? null;
-      const hasExpectedExp = Object.prototype.hasOwnProperty.call(item || {}, 'expectedExp');
-      const hasExpectedExpMin = Object.prototype.hasOwnProperty.call(item || {}, 'expectedExpMin');
-      const hasExpectedExpMax = Object.prototype.hasOwnProperty.call(item || {}, 'expectedExpMax');
-      const hasExpectedChanceUp = Object.prototype.hasOwnProperty.call(item || {}, 'expectedChanceUp');
-      const hasUniversalExpectedExp = Object.prototype.hasOwnProperty.call(item || {}, 'universalExpectedExp');
-      const hasUniversalExpectedExpMin = Object.prototype.hasOwnProperty.call(item || {}, 'universalExpectedExpMin');
-      const hasUniversalExpectedExpMax = Object.prototype.hasOwnProperty.call(item || {}, 'universalExpectedExpMax');
-      const hasChanseUp = Object.prototype.hasOwnProperty.call(item || {}, 'chanseUp');
-      if (hasExpectedExp && item.expectedExp === expectedExp &&
-          hasExpectedExpMin && item.expectedExpMin === expectedExpMin &&
-          hasExpectedExpMax && item.expectedExpMax === expectedExpMax &&
-          hasExpectedChanceUp && item.expectedChanceUp === expectedChanceUp &&
-          hasUniversalExpectedExp && item.universalExpectedExp === universalExpectedExp &&
-          hasUniversalExpectedExpMin && item.universalExpectedExpMin === universalExpectedExpMin &&
-          hasUniversalExpectedExpMax && item.universalExpectedExpMax === universalExpectedExpMax &&
-          hasChanseUp && item.chanseUp === chanseUp) {
-        return item;
-      }
-      changed = true;
-      return {
-        ...item,
-        expectedExp,
-        expectedExpMin,
-        expectedExpMax,
-        expectedChanceUp,
-        universalExpectedExp,
-        universalExpectedExpMin,
-        universalExpectedExpMax,
-        chanseUp
-      };
-    });
-
+    const normalized = samples.map((item) => normalizeReaperExpSample(item)).filter(Boolean);
+    const changed = JSON.stringify(normalized) !== JSON.stringify(samples);
     if (!changed) return { value: source, changed: false };
-    return { value: { ...source, samples: enriched }, changed: true };
+    return { value: { ...source, samples: normalized }, changed: true };
   }
 
   function samplesFor(resourceId) {
@@ -463,26 +421,16 @@
 
     const safeExp = validReaperExp(observation.exp);
     if (safeExp == null) return false;
-    const expected = expectedProfessionalExpDetails(observation.resourceId, observation.quantity, rankKey);
-    const universal = universalExpectedProfessionalExpDetails(observation.resourceId, observation.quantity, rankKey);
-    const sample = {
+    const sample = normalizeReaperExpSample({
+      count: 1,
+      exp: safeExp,
+      professionExp: Number.isFinite(Number(reaperProfile?.exp)) ? Number(reaperProfile.exp) : null,
+      quantity: Number(observation.quantity),
+      rankKey,
       resourceId: observation.resourceId,
       resourceName: observation.resourceName,
-      quantity: Number(observation.quantity),
-      exp: safeExp,
-      rankKey,
-      expectedExp: expected?.value ?? null,
-      expectedExpMin: expected?.min ?? null,
-      expectedExpMax: expected?.max ?? null,
-      expectedChanceUp: expected?.chanceUp ?? null,
-      universalExpectedExp: universal?.value ?? null,
-      universalExpectedExpMin: universal?.min ?? null,
-      universalExpectedExpMax: universal?.max ?? null,
-      chanseUp: universal?.chanceUp ?? null,
-      professionExp: Number.isFinite(Number(reaperProfile?.exp)) ? Number(reaperProfile.exp) : null,
-      ts: Date.now(),
-      count: 1
-    };
+      ts: Date.now()
+    });
     const samples = Array.isArray(reaperExp?.samples) ? [...reaperExp.samples] : [];
 
     // Persist the learned quantity->XP mapping instead of spending storage on an
@@ -493,18 +441,14 @@
       Number(item.quantity) === sample.quantity && Number(item.exp) === sample.exp
     );
     if (existing) {
-      existing.count = sampleWeight(existing) + 1;
-      existing.ts = sample.ts;
-      existing.resourceName = sample.resourceName;
-      existing.professionExp = sample.professionExp;
-      existing.expectedExp = sample.expectedExp;
-      existing.expectedExpMin = sample.expectedExpMin;
-      existing.expectedExpMax = sample.expectedExpMax;
-      existing.expectedChanceUp = sample.expectedChanceUp;
-      existing.universalExpectedExp = sample.universalExpectedExp;
-      existing.universalExpectedExpMin = sample.universalExpectedExpMin;
-      existing.universalExpectedExpMax = sample.universalExpectedExpMax;
-      existing.chanseUp = sample.chanseUp;
+      const existingIndex = samples.indexOf(existing);
+      samples[existingIndex] = normalizeReaperExpSample({
+        ...existing,
+        count: sampleWeight(existing) + 1,
+        ts: sample.ts,
+        resourceName: sample.resourceName,
+        professionExp: sample.professionExp
+      });
     } else {
       samples.push(sample);
     }

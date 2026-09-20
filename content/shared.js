@@ -147,47 +147,15 @@
     return Number.isFinite(exp) && exp >= 0 && exp <= MAX_REAPER_EXP ? exp : null;
   }
 
-  // Candidate universal Жнец reward model A (resource index based).
-  //
-  //   raw = quantity * (resourceIndex + 6 - rankIndex) / (rankIndex + 1)
-  //
-  // resourceIndex is the zero-based position in RESOURCES. This model is kept
-  // in parallel with the tier-based universal model so every profession rank
-  // can be compared against both hypotheses using the same observations.
-  function expectedProfessionalExpDetails(resourceId, quantity, rankKey) {
-    const qty = Number(quantity);
-    if (!Number.isFinite(qty) || qty <= 0) return null;
-
-    const id = String(resourceId);
-    const resourceIndex = RESOURCES.findIndex((resource) => resource.id === id);
-    if (resourceIndex < 0) return null;
-
-    const rank = canonicalReaperRank(rankKey);
-    const rankIndex = rank ? REAPER_RANKS.indexOf(rank) : -1;
-    if (rankIndex < 0) return null;
-
-    const raw = qty * (resourceIndex + 6 - rankIndex) / (rankIndex + 1);
-    const capped = Math.min(MAX_REAPER_EXP, Math.max(1, raw));
-    const value = Math.round(capped * 10000) / 10000;
-    const min = Math.floor(value);
-    const max = Math.ceil(value);
-    const chanceUp = min === max ? 0 : Math.round((value - min) * 10000) / 10000;
-    return { value, min, max, chanceUp };
-  }
-
-  function expectedProfessionalExp(resourceId, quantity, rankKey) {
-    return expectedProfessionalExpDetails(resourceId, quantity, rankKey)?.value ?? null;
-  }
-
-  // Candidate universal Жнец reward model B (resource progression tier based).
+  // Current universal Жнец reward model (resource progression tier based).
   //
   //   raw = quantity * (resourceTier + 6 - rankIndex) / (rankIndex + 1)
   //
   // rankIndex is the zero-based position in REAPER_RANKS and resourceTier is
   // REAPER_RESOURCE_TIERS. Мандрагора and Зеленая Массивка intentionally share
-  // tier 3 here. The result is fractional and capped to the currently observed
-  // 1..10 reward range.
-  function universalExpectedProfessionalExpDetails(resourceId, quantity, rankKey) {
+  // tier 3. The expected value is kept fractional and capped to the currently
+  // observed 1..10 reward range.
+  function expectedProfessionalExpDetails(resourceId, quantity, rankKey) {
     const qty = Number(quantity);
     if (!Number.isFinite(qty) || qty <= 0) return null;
 
@@ -208,8 +176,36 @@
     return { value, min, max, chanceUp };
   }
 
-  function universalExpectedProfessionalExp(resourceId, quantity, rankKey) {
-    return universalExpectedProfessionalExpDetails(resourceId, quantity, rankKey)?.value ?? null;
+  function expectedProfessionalExp(resourceId, quantity, rankKey) {
+    return expectedProfessionalExpDetails(resourceId, quantity, rankKey)?.value ?? null;
+  }
+
+  // Rebuild a stored sample into one canonical schema/order. Besides making
+  // exports easier to read, this intentionally drops obsolete fields from the
+  // previous dual-model experiment. Raw observations are preserved.
+  function normalizeReaperExpSample(sample) {
+    if (!sample || typeof sample !== 'object') return null;
+
+    const expected = expectedProfessionalExpDetails(sample.resourceId, sample.quantity, sample.rankKey);
+    const professionExp = Number(sample.professionExp);
+    const quantity = Number(sample.quantity);
+    const ts = Number(sample.ts);
+    const exp = validReaperExp(sample.exp);
+
+    return {
+      count: sampleWeight(sample),
+      exp: exp ?? null,
+      expectedExp: expected?.value ?? null,
+      expectedExpMin: expected?.min ?? null,
+      expectedExpMax: expected?.max ?? null,
+      chanceUp: expected?.chanceUp ?? null,
+      professionExp: Number.isFinite(professionExp) ? professionExp : null,
+      quantity: Number.isFinite(quantity) ? quantity : null,
+      rankKey: normalizeText(sample.rankKey || '').toLowerCase() || 'unknown',
+      resourceId: sample.resourceId == null ? '' : String(sample.resourceId),
+      resourceName: normalizeText(sample.resourceName || ''),
+      ts: Number.isFinite(ts) ? ts : null
+    };
   }
 
   function sampleWeight(sample) {
@@ -350,8 +346,7 @@
     validReaperExp,
     expectedProfessionalExp,
     expectedProfessionalExpDetails,
-    universalExpectedProfessionalExp,
-    universalExpectedProfessionalExpDetails,
+    normalizeReaperExpSample,
     sampleWeight,
     weightedMedian,
     exactExperienceSummary,

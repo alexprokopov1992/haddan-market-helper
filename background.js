@@ -2,30 +2,11 @@ importScripts('content/shared.js');
 
 'use strict';
 
-const REAPER_MODEL_RECALC_VERSION = '0.6.66-dual-universal-20260921';
-
-function reaperModelFields(sample) {
-  const shared = globalThis.HMH_SHARED;
-  if (!shared) return null;
-
-  const expected = shared.expectedProfessionalExpDetails(sample?.resourceId, sample?.quantity, sample?.rankKey);
-  const universal = shared.universalExpectedProfessionalExpDetails(sample?.resourceId, sample?.quantity, sample?.rankKey);
-
-  return {
-    expectedExp: expected?.value ?? null,
-    expectedExpMin: expected?.min ?? null,
-    expectedExpMax: expected?.max ?? null,
-    expectedChanceUp: expected?.chanceUp ?? null,
-    universalExpectedExp: universal?.value ?? null,
-    universalExpectedExpMin: universal?.min ?? null,
-    universalExpectedExpMax: universal?.max ?? null,
-    chanseUp: universal?.chanceUp ?? null
-  };
-}
+const REAPER_MODEL_RECALC_VERSION = '0.6.67-tier-only-20260921';
 
 async function recalculateStoredReaperModels() {
   const shared = globalThis.HMH_SHARED;
-  if (!shared?.STORAGE_KEYS?.reaperExp) return false;
+  if (!shared?.STORAGE_KEYS?.reaperExp || !shared?.normalizeReaperExpSample) return false;
 
   const key = shared.STORAGE_KEYS.reaperExp;
   const stored = await chrome.storage.local.get(key);
@@ -33,16 +14,16 @@ async function recalculateStoredReaperModels() {
   if (!current || !Array.isArray(current.samples)) return false;
   if (current.modelRecalcVersion === REAPER_MODEL_RECALC_VERSION) return false;
 
-  const samples = current.samples.map((sample) => {
-    const fields = reaperModelFields(sample);
-    return fields ? { ...sample, ...fields } : sample;
-  });
+  const samples = current.samples
+    .map((sample) => shared.normalizeReaperExpSample(sample))
+    .filter(Boolean);
 
   await chrome.storage.local.set({
     [key]: {
-      ...current,
+      maxExp: shared.MAX_REAPER_EXP,
+      modelRecalcVersion: REAPER_MODEL_RECALC_VERSION,
       samples,
-      modelRecalcVersion: REAPER_MODEL_RECALC_VERSION
+      updatedAt: Number.isFinite(Number(current.updatedAt)) ? Number(current.updatedAt) : Date.now()
     }
   });
   return true;

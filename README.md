@@ -75,26 +75,23 @@ Use [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) before publishing a zip. New re
 
 ## Current version
 
-`0.6.48` recovers automatically from Haddan's intermittent NPC dialogue-initialization error by returning to the Poliana, clearing stale transient locks, and retrying after a short backoff.
+`0.6.67` keeps one universal tier-based Жнец XP model and automatically migrates all stored XP observations to the clean single-model schema.
 
 
-### Experimental universal Жнец XP model
+### Жнец XP model
 
-Stored XP samples also include `universalExpectedExp`, calculated in parallel as:
+Version 0.6.67 keeps one universal tier-based model for every known profession rank:
 
-`quantity * (resourceTier + 6 - rankIndex) / (rankIndex + 1)`
+`expectedExp = clamp(quantity * (resourceTier + 6 - rankIndex) / (rankIndex + 1), 1, 10)`
 
-The value is capped to `1..10` and kept fractional. Version 0.6.66 keeps two universal hypotheses in parallel:
+Resource tiers are `0,1,2,3,3,4,5` for Мухожор, Подсолнух, Капустница, Мандрагора, Зеленая Массивка, Колючник Черный, Гертаниум.
 
-- `expectedExp`: resource-index model `Q * (resourceIndex + 6 - rankIndex) / (rankIndex + 1)`
-- `universalExpectedExp`: resource-tier model `Q * (resourceTier + 6 - rankIndex) / (rankIndex + 1)`
+Each stored observation has one prediction block only:
 
-Both are evaluated for every known Жнец rank so accumulated samples can decide which resource progression model better matches the server.
+- `expectedExp` - fractional expected XP;
+- `expectedExpMin = floor(expectedExp)`;
+- `expectedExpMax = ceil(expectedExp)`;
+- `chanceUp` - fractional part of `expectedExp`, retained as the stochastic-rounding hypothesis.
 
-Each stored sample also includes stochastic-rounding diagnostics derived from the universal value:
+On upgrade, all historical `hmh_reaper_exp_v1` samples are rebuilt into the same canonical field order and obsolete dual-model fields are removed automatically.
 
-- `universalExpectedExpMin = floor(universalExpectedExp)`
-- `universalExpectedExpMax = ceil(universalExpectedExp)`
-- `chanseUp = universalExpectedExp - floor(universalExpectedExp)` (0 for an integer/capped value)
-
-The `chanseUp` field intentionally follows the storage key requested for the experiment. It represents the current hypothesis that the server rounds up with probability equal to the fractional part.

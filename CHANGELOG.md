@@ -1,3 +1,11 @@
+## 0.6.67
+
+- Selected the resource-tier Жнец XP model as the single working universal model: `Q * (resourceTier + 6 - rankIndex) / (rankIndex + 1)`, capped to `1..10`.
+- Removed the parallel resource-index model from runtime sample data.
+- Historical `hmh_reaper_exp_v1` samples are force-recalculated on upgrade and obsolete fields (`universalExpectedExp*`, `expectedChanceUp`, `chanseUp`) are removed.
+- Unified the prediction fields as `expectedExp`, `expectedExpMin`, `expectedExpMax`, `chanceUp`.
+- Rebuilds every sample into a stable human-readable field order while preserving raw observations (`count`, actual `exp`, profession XP, quantity, rank, resource and timestamp).
+
 ## 0.6.66
 - Added a background one-time backfill for all historical Reaper XP samples. Both universal models, Min/Max and chance-up fields are recomputed even when a Fairy page is never opened; raw observations remain unchanged.
 
