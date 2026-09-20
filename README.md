@@ -74,4 +74,4 @@ Use [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) before publishing a zip. New re
 
 ## Current version
 
-`0.6.38` fixes a Fairy reward acknowledgement deadlock after XP capture and adds maintenance tooling/tests around the shared logic.
+`0.6.39` adds recovery and a 30-second timeout for the Fairy reward acknowledgement wait after XP has already been saved.

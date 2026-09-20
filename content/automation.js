@@ -650,6 +650,21 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     return !!findQaAction(9000, /спасибо/i);
   }
 
+  function rewardAckEchoVisible(text = bodyText()) {
+    return /\b[^\n]{0,80}->\s*\*?Фея\s+Поляныnpc\*?\s*спасибо[.!]?/i.test(text) ||
+      /\bспасибо[.!]?[\s\S]{0,260}?я\s+дам\s+тебе\s+\d+\s*(?:ед\.?|шт\.?)/i.test(text);
+  }
+
+  function likelyIdlePolianaAfterReward() {
+    if (window.top !== window) return false;
+    if (!/\/room\/room\.php$/i.test(location.pathname)) return false;
+    return !fairyChoiceVisible() &&
+      !readyDialogueVisible() &&
+      !fairyCooldownDialogueVisible() &&
+      !battleInterfaceVisible() &&
+      !findBattleReturnAction();
+  }
+
   function fairyCooldownDialogueVisible(text = bodyText()) {
     return /сейчас\s+пока\s+нет\s+для\s+тебя\s+работы/i.test(text);
   }
@@ -1283,6 +1298,23 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       const pendingRewardDoc = rewardDocumentState();
       const exactThanksHere = findExactThanksAction();
       const captured = Number(runtime.lastRewardCapturedAt || 0) >= Number(runtime.rewardChoiceAt || 0);
+      const rewardAge = now - Number(runtime.pendingRewardSince || now);
+
+      // Recovery for the case where Haddan accepted «Спасибо.» and closed the
+      // reward iframe before this frame could observe the post-ACK transition.
+      // We only release after XP capture, so an unrecorded reward is still protected.
+      if (captured && (rewardAckEchoVisible(text) || (rewardAge >= 5000 && likelyIdlePolianaAfterReward()))) {
+        await clearRewardTransaction();
+        scheduleScan(250);
+        return;
+      }
+
+      if (captured && rewardAge >= 30000) {
+        await clearRewardTransaction();
+        await setStatus('Фея: опыт сохранен · таймаут ожидания «Спасибо», возобновляю цикл');
+        scheduleScan(250);
+        return;
+      }
 
       // Normal case: a new reward document appeared after the choice.
       // Haddan can also update the SAME qa.php document in place. In that case
@@ -1294,7 +1326,6 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         (pendingRewardDoc.freshDocument &&
           (rewardConfirmationVisible(text) || !!exactThanksHere)) ||
         (captured && pendingRewardDoc.sameChoiceFrame && !!exactThanksHere);
-      const rewardAge = now - Number(runtime.pendingRewardSince || now);
 
       // If an acknowledgement was scheduled but the page never transitioned,
       // release only the ACK sub-lock and let the same verified reward retry.

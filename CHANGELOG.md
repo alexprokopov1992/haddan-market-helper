@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.39
+
+- Added recovery when XP is already saved but Haddan closes the reward window before the extension observes `Спасибо.`.
+- Added a 30-second timeout for the saved-XP reward acknowledgement wait, so the Poliana cycle cannot stay locked forever.
+
 ## 0.6.38
 
 - Fixed the Fairy reward acknowledgement deadlock after XP capture.
