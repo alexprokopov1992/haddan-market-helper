@@ -75,4 +75,4 @@ Use [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) before publishing a zip. New re
 
 ## Current version
 
-`0.6.41` improves Fairy reward ACK recovery for the real Haddan chat echo format and keeps the saved-XP timeout fallback.
+`0.6.42` fixes Fairy reward ACK recovery for Cyrillic resource names and keeps the saved-XP timeout fallback.

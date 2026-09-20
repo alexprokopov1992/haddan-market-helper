@@ -591,7 +591,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     if (!expectedName || !expectedQty || !/спасибо[.!]?/i.test(src)) return false;
 
     const escapedName = expectedName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const rewardLine = new RegExp(`я\\s+дам\\s+тебе\\s+${expectedQty}\\s*(?:ед\\.?|шт\\.?)\\s+${escapedName}\\b`, 'i');
+    const rewardLine = new RegExp(`я\\s+дам\\s+тебе\\s+${expectedQty}\\s*(?:ед\\.?|шт\\.?)\\s+${escapedName}(?=\\s|[.,!?:;]|$)`, 'i');
     if (!rewardLine.test(src)) return false;
 
     const thanksToFairy = /->\s*\*?\s*Фея\s+Поляны\s*npc\s*\*?\s*спасибо[.!]?/i;

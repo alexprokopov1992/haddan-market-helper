@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.42
+
+- Fixed Fairy reward ACK recovery for Cyrillic resource names by replacing a JavaScript `\b` word boundary with a Cyrillic-safe boundary.
+
 ## 0.6.41
 
 - Made reward ACK recovery detect the real chat echo format: `player -> *Фея Поляныnpc* Спасибо.`.
