@@ -75,4 +75,4 @@ Use [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) before publishing a zip. New re
 
 ## Current version
 
-`0.6.43` fixes the post-reward `Спасибо.` deadlock when Haddan moves the acknowledgement into a fresh `qa.php` document/frame after XP has already been saved.
+`0.6.48` recovers automatically from Haddan's intermittent NPC dialogue-initialization error by returning to the Poliana, clearing stale transient locks, and retrying after a short backoff.

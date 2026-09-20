@@ -6,6 +6,7 @@
     fairyCooldownLogicVersion: 2,
     fairyCooldownMinDocumentStartedAt: 0,
     fairyCooldownTransitionUntil: 0,
+    dialogInitRecoveryUntil: 0,
     pendingReward: false,
     pendingRewardSince: 0,
     pendingRewardResource: '',

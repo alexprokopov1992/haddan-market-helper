@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.48
+
+- Added recovery for Haddan's exact `Ошибка инициализации диалога! ... попытайтесь начать диалог ещё раз` page.
+- The extension now clicks the exact `Вернуться` link to `/room/room.php`, releases stale battle/Fairy transaction locks, waits 3 seconds, and retries the Fairy flow.
+- Already captured reward/XP evidence is preserved if this error appears during a reward transaction.
+
 ## 0.6.47
 
 - Added a 30-second post-reward failsafe: after the exact Fairy XP reward has already been saved, a stalled `Спасибо.` completion no longer locks the automation indefinitely.

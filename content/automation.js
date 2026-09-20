@@ -784,6 +784,25 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     return { choiceAt, age, freshDocument, freshQaAfterChoice, sameChoiceFrame, captured };
   }
 
+  function dialogueInitializationErrorVisible(text = bodyText()) {
+    const normalized = normalize(text);
+    return /ошибка\s+инициализации\s+диалога!?/i.test(normalized) &&
+      /пожалуйста[,!]?\s*попытайтесь\s+начать\s+диалог\s+ещ[её]\s+раз/i.test(normalized);
+  }
+
+  function findDialogueInitializationErrorReturnAction(text = bodyText()) {
+    if (!dialogueInitializationErrorVisible(text)) return null;
+
+    // This is a very specific Haddan error page. Require both the exact server
+    // message above and an exact "Вернуться" action leading back to room.php,
+    // so an unrelated error or ordinary navigation link is never auto-clicked.
+    const actions = allActions().filter((el) => visible(el) && enabled(el));
+    return actions.find((el) => {
+      if (!/^вернуться[.!]?$/i.test(elementLabel(el))) return false;
+      return /\/room\/room\.php$/i.test(hrefPath(el));
+    }) || null;
+  }
+
   function findBattleReturnAction(text = bodyText()) {
     // Typical Poliana result page:
     //   "Вы получили +20 опыта"
@@ -1155,8 +1174,61 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       return;
     }
 
-    // 0) Haddan can show this guard page when the user/NPC navigation happens while
-    //    a fight is still active. Return to the fight before processing any Fairy state.
+    // 0) Haddan occasionally returns a dedicated NPC-dialog initialization error:
+    //    "Ошибка инициализации диалога! Пожалуйста, попытайтесь начать диалог ещё раз."
+    // Treat it as a recoverable transport/dialog race: close that exact error page,
+    // release transient locks that would otherwise keep the bot on "Бой: активен"
+    // or "жду награду", then retry the Fairy only after a short shared backoff.
+    const dialogErrorReturn = findDialogueInitializationErrorReturnAction(text);
+    if (dialogErrorReturn) {
+      const recoveryUntil = Number(runtime.dialogInitRecoveryUntil || 0);
+      if (recoveryUntil > now) {
+        await setStatus('Фея: ошибка инициализации диалога · жду возврат на Поляну');
+        scheduleScan(Math.min(500, Math.max(120, recoveryUntil - now)));
+        return;
+      }
+
+      await clearBattleExpected();
+      await clearBattleActive();
+
+      // If the failed page appeared during a reward transaction, keeping
+      // pendingReward would make every other frame wait forever for a reward page
+      // that the server explicitly failed to initialize. clearRewardTransaction()
+      // removes only transaction/ACK locks; already captured XP evidence remains.
+      if (runtime.pendingReward || runtime.rewardAckStartedAt || runtime.rewardAckScheduledAt) {
+        await clearRewardTransaction();
+      }
+
+      const retryUntil = Date.now() + 3000;
+      await saveRuntime({
+        dialogInitRecoveryUntil: retryUntil,
+        battleExpectedUntil: 0,
+        battleStartRequestedAt: 0,
+        battleStartRequestFrameKey: '',
+        battleStartRequestDocumentStartedAt: 0,
+        battleStartAttempts: 0,
+        fairyChoiceActiveUntil: 0
+      });
+
+      const clicked = await clickAction(
+        dialogErrorReturn,
+        'dialog-init-error-return',
+        'Фея: ошибка инициализации диалога · возвращаюсь и повторю',
+        160
+      );
+      if (!clicked) {
+        await setStatus('Фея: ошибка инициализации диалога · жду возможность вернуться');
+        scheduleScan(300);
+      } else {
+        // If Haddan ignores the native return once, rescan the same error page
+        // after the shared backoff and retry instead of silently stopping here.
+        scheduleScan(500);
+      }
+      return;
+    }
+
+    // 0.1) Haddan can show this guard page when the user/NPC navigation happens while
+    //      a fight is still active. Return to the fight before processing any Fairy state.
     const continueBattle = findContinueBattleAction(text);
     if (continueBattle) {
       // This dialogue may remain visible for a while even after the first click,
@@ -1247,6 +1319,18 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       await setStatus('Бой: активен, жду штатный автобой/результат');
       scheduleScan(500);
       return;
+    }
+
+    // After the exact dialog-initialization error was closed, let Haddan finish
+    // returning to room.php before another frame opens the Fairy again. A real
+    // battle/result page is handled above and is therefore never hidden by this guard.
+    if (runtime.dialogInitRecoveryUntil && runtime.dialogInitRecoveryUntil > now) {
+      await setStatus(`Фея: повторяю диалог через ${formatCountdown(runtime.dialogInitRecoveryUntil - now)}`);
+      scheduleScan(Math.min(500, Math.max(120, runtime.dialogInitRecoveryUntil - now)));
+      return;
+    }
+    if (runtime.dialogInitRecoveryUntil && runtime.dialogInitRecoveryUntil <= now) {
+      await saveRuntime({ dialogInitRecoveryUntil: 0 });
     }
 
     // Failsafe requested for the post-reward acknowledgement. Once the exact XP

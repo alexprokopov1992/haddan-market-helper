@@ -17,6 +17,7 @@ test('normalizeRuntime keeps known values and fills missing defaults', () => {
   assert.equal(normalized.rewardChoiceAt, 123);
   assert.equal(normalized.battleActive, false);
   assert.equal(normalized.fairyCooldownLogicVersion, 2);
+  assert.equal(normalized.dialogInitRecoveryUntil, 0);
   assert.equal(normalized.rewardAckLogicVersion, 3);
   assert.equal(normalized.rewardAckScheduledAt, 0);
   assert.equal(normalized.rewardAckFrameKey, '');
