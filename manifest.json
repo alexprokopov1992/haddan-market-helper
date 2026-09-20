@@ -44,6 +44,7 @@
       ],
       "js": [
         "content/shared.js",
+        "content/runtime.js",
         "content/fairy.js",
         "content/automation.js"
       ],

@@ -10,7 +10,7 @@ $TempDir = Join-Path $env:TEMP ("hmh-package-{0}" -f ([guid]::NewGuid().ToString
 New-Item -ItemType Directory -Path $TempDir | Out-Null
 
 try {
-  $Items = @('manifest.json', 'background.js', 'offscreen.html', 'offscreen.js', 'content', 'popup', 'README.md', 'CHANGELOG.md', 'RELEASE_CHECKLIST.md')
+  $Items = @('manifest.json', 'background.js', 'offscreen.html', 'offscreen.js', 'content', 'popup', 'docs', 'README.md', 'CHANGELOG.md', 'RELEASE_CHECKLIST.md')
   foreach ($Item in $Items) {
     $Source = Join-Path $Root $Item
     if (!(Test-Path -LiteralPath $Source)) { continue }
@@ -25,7 +25,8 @@ try {
   if (Test-Path -LiteralPath $ZipPath) {
     Remove-Item -LiteralPath $ZipPath -Force
   }
-  Compress-Archive -LiteralPath (Join-Path $TempDir '*') -DestinationPath $ZipPath -Force
+  $ArchiveItems = Get-ChildItem -LiteralPath $TempDir
+  Compress-Archive -Path $ArchiveItems.FullName -DestinationPath $ZipPath -Force
   Write-Host "Created $ZipPath"
 } finally {
   if (Test-Path -LiteralPath $TempDir) {

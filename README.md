@@ -25,6 +25,7 @@ Chrome MV3 extension for Haddan market scanning and Poliana/Fairy helper automat
 - `offscreen.html`, `offscreen.js` - CAPTCHA alert sound.
 - `popup/` - browser action popup.
 - `content/shared.js` - shared constants and pure helpers used by content scripts and tests.
+- `content/runtime.js` - shared runtime storage contract and normalization helpers.
 - `content/content.js` - top-frame market panel and settings UI.
 - `content/fairy.js` - Fairy offer parsing, annotations, resource choice, reward XP capture.
 - `content/automation.js` - Poliana/Fairy/CAPTCHA runtime state machine.
@@ -70,7 +71,7 @@ Important boundaries:
 
 ## Release process
 
-Use [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) before publishing a zip. New release notes go to [CHANGELOG.md](CHANGELOG.md).
+Use [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) before publishing a zip. New release notes go to [CHANGELOG.md](CHANGELOG.md). The module layout is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Current version
 

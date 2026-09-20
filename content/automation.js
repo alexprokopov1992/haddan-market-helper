@@ -1,4 +1,4 @@
-(() => {
+﻿(() => {
   'use strict';
 
   if (window.__HMH_BATTLE_AUTOMATION__) return;
@@ -15,77 +15,11 @@
   const BOT_RUNTIME_KEY = STORAGE_KEYS.botRuntime;
   const REAPER_PROFILE_KEY = STORAGE_KEYS.reaperProfile;
 
-  const DEFAULT_RUNTIME = {
-    fairyWaitUntil: 0,
-    fairyCooldownLogicVersion: 2,
-    // Documents that were already open when the last Fairy cooldown expired
-    // are stale and must never be allowed to seed a new full cooldown.
-    fairyCooldownMinDocumentStartedAt: 0,
-    // Short cross-frame guard while an expired Fairy dialogue is being closed.
-    fairyCooldownTransitionUntil: 0,
-    pendingReward: false,
-    pendingRewardSince: 0,
-    pendingRewardResource: '',
-    pendingRewardResourceId: '',
-    pendingRewardQuantity: 0,
-    pendingRewardRankKey: '',
-    // Legacy field kept for backwards-compatible runtime normalization.
-    latestFairyChoiceDocumentStartedAt: 0,
-    // v0.6.30+: only a document that contains REAL actionable resource qa.php links
-    // may become the active Fairy choice page. Chat/history frames can contain the
-    // same resource text but must never block the genuine choice iframe.
-    latestFairyActionableChoiceDocumentStartedAt: 0,
-    latestFairyActionableChoiceFrameKey: '',
-    latestFairyActionableChoiceSignature: '',
-    // Short shared lock refreshed while the actionable choice page is visible.
-    // It prevents another Haddan frame from reopening Fairy and replacing the
-    // choice page before fairy.js performs the native resource click.
-    fairyChoiceActiveUntil: 0,
-    // Timestamp of the resource-choice click. Used to ensure that only the NEW
-    // qa.php document created by that choice may acknowledge the reward.
-    rewardChoiceAt: 0,
-    rewardChoiceDocumentStartedAt: 0,
-    // Stable identity of the iframe/browsing context that submitted the resource.
-    // Only that same frame may process and acknowledge the reward.
-    rewardChoiceFrameKey: '',
-    // Written by fairy.js after the profession XP line has actually been observed.
-    // pendingReward intentionally remains true until «Спасибо.» completes.
-    lastRewardCapturedAt: 0,
-    lastRewardCapturedExp: null,
-    lastRewardCapturedResourceId: '',
-    lastRewardCapturedQuantity: 0,
-    rewardAcknowledgingUntil: 0,
-    rewardAckStartedAt: 0,
-    battleExpectedUntil: 0,
-    battleStartLogicVersion: 2,
-    // v0.6.31: clicking «Да, мне нужны новые травы» only REQUESTS the fight.
-    // Do not mark battleActive until Haddan actually renders a battle interface.
-    // Otherwise a throttled/dropped click can deadlock the FSM on the start dialog.
-    battleStartRequestedAt: 0,
-    battleStartRequestFrameKey: '',
-    battleStartRequestDocumentStartedAt: 0,
-    battleStartAttempts: 0,
-    // Cross-frame fight lock. While true, idle/chat/Fairy frames are forbidden
-    // from starting another Fairy interaction. It is set only after a real battle
-    // surface (or an explicit «Продолжить бой» recovery state) is observed.
-    battleActive: false,
-    battleRecoveryLastClickAt: 0,
-    battleRecoveryAttempts: 0,
-    // Global automation pause used when Haddan shows a CAPTCHA in any frame.
-    pauseReason: '',
-    captchaDetectedAt: 0,
-    captchaLastSeenAt: 0,
-    captchaSignalAt: 0
-  };
-
-  function normalizeRuntime(raw = {}) {
-    const result = {};
-    for (const key of Object.keys(DEFAULT_RUNTIME)) {
-      result[key] = Object.prototype.hasOwnProperty.call(raw, key) ? raw[key] : DEFAULT_RUNTIME[key];
-    }
-    return result;
-  }
-
+  const {
+    DEFAULT_RUNTIME,
+    normalizeRuntime,
+    clearRewardRuntimePatch
+  } = window.HMH_RUNTIME;
   let settings = { ...DEFAULT_AUTOMATION };
   let runtime = { ...DEFAULT_RUNTIME };
   let mutationVersion = 0;
@@ -227,9 +161,9 @@
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('captcha-canvas-unavailable');
 
-    // PNG Haddan має прозорий фон.
-    // Перед drawImage робимо його білим,
-    // щоб API/OpenCV отримав чорні руни на білому фоні.
+    // PNG Haddan РјР°С” РїСЂРѕР·РѕСЂРёР№ С„РѕРЅ.
+    // РџРµСЂРµРґ drawImage СЂРѕР±РёРјРѕ Р№РѕРіРѕ Р±С–Р»РёРј,
+    // С‰РѕР± API/OpenCV РѕС‚СЂРёРјР°РІ С‡РѕСЂРЅС– СЂСѓРЅРё РЅР° Р±С–Р»РѕРјСѓ С„РѕРЅС–.
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, width, height);
 
@@ -310,7 +244,7 @@ async function applyRunes(runes) {
     const progress = 60 + Math.round((current / Math.max(1, total)) * 24);
     await setCaptchaStatus(
       'input',
-      `CAPTCHA: ввожу руну ${current} из ${total}…`,
+      `CAPTCHA: РІРІРѕР¶Сѓ СЂСѓРЅСѓ ${current} РёР· ${total}вЂ¦`,
       { progress, current, total, runeCount: total }
     );
 
@@ -320,7 +254,7 @@ async function applyRunes(runes) {
 
   await setCaptchaStatus(
     'verifying',
-    `CAPTCHA: все ${total} рун(ы) введены, проверяю ответ…`,
+    `CAPTCHA: РІСЃРµ ${total} СЂСѓРЅ(С‹) РІРІРµРґРµРЅС‹, РїСЂРѕРІРµСЂСЏСЋ РѕС‚РІРµС‚вЂ¦`,
     { progress: 88, current: total, total, runeCount: total }
   );
   return true;
@@ -365,7 +299,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
 
   await setCaptchaStatus(
     'decoded',
-    `CAPTCHA: распознано ${runes.length} рун(ы), начинаю ввод…`,
+    `CAPTCHA: СЂР°СЃРїРѕР·РЅР°РЅРѕ ${runes.length} СЂСѓРЅ(С‹), РЅР°С‡РёРЅР°СЋ РІРІРѕРґвЂ¦`,
     { progress: 58, total: runes.length, runeCount: runes.length }
   );
   await delay(800);
@@ -376,7 +310,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
 
   await setCaptchaStatus(
     'submitting',
-    'CAPTCHA: ответ сформирован, отправляю «В бой»…',
+    'CAPTCHA: РѕС‚РІРµС‚ СЃС„РѕСЂРјРёСЂРѕРІР°РЅ, РѕС‚РїСЂР°РІР»СЏСЋ В«Р’ Р±РѕР№В»вЂ¦',
     { progress: 94, current: runes.length, total: runes.length, runeCount: runes.length }
   );
   await delay(800);
@@ -397,11 +331,11 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
 
     captchaSolveInFlight = true;
     try {
-      await setCaptchaStatus('preparing', 'CAPTCHA: подготавливаю изображение…', { progress: 12 });
+      await setCaptchaStatus('preparing', 'CAPTCHA: РїРѕРґРіРѕС‚Р°РІР»РёРІР°СЋ РёР·РѕР±СЂР°Р¶РµРЅРёРµвЂ¦', { progress: 12 });
       const beforeImage = await captureCaptchaImageDataUrl();
       const challengeFingerprint = hashString(beforeImage);
 
-      await setCaptchaStatus('api', 'CAPTCHA: отправляю изображение в API…', { progress: 30 });
+      await setCaptchaStatus('api', 'CAPTCHA: РѕС‚РїСЂР°РІР»СЏСЋ РёР·РѕР±СЂР°Р¶РµРЅРёРµ РІ APIвЂ¦', { progress: 30 });
       const apiRunes = await requestCaptchaDecode(beforeImage, token);
       debugLog('[Haddan Market Helper] CAPTCHA API runes:', apiRunes);
 
@@ -409,13 +343,13 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       debugLog('[Haddan Market Helper] CAPTCHA mapped siteRunes:', siteRunes);
       await setCaptchaStatus(
         'decoded',
-        `CAPTCHA: API распознал ${siteRunes.length} рун(ы)`,
+        `CAPTCHA: API СЂР°СЃРїРѕР·РЅР°Р» ${siteRunes.length} СЂСѓРЅ(С‹)`,
         { progress: 50, total: siteRunes.length, runeCount: siteRunes.length }
       );
 
       await setCaptchaStatus(
         'verifying',
-        'CAPTCHA: проверяю, что изображение не изменилось…',
+        'CAPTCHA: РїСЂРѕРІРµСЂСЏСЋ, С‡С‚Рѕ РёР·РѕР±СЂР°Р¶РµРЅРёРµ РЅРµ РёР·РјРµРЅРёР»РѕСЃСЊвЂ¦',
         { progress: 54, total: siteRunes.length, runeCount: siteRunes.length }
       );
 
@@ -443,14 +377,14 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       lastCaptchaDecode.submittedAt = Date.now();
       await setCaptchaStatus(
         'waiting',
-        'CAPTCHA: ответ отправлен, жду переход страницы…',
+        'CAPTCHA: РѕС‚РІРµС‚ РѕС‚РїСЂР°РІР»РµРЅ, Р¶РґСѓ РїРµСЂРµС…РѕРґ СЃС‚СЂР°РЅРёС†С‹вЂ¦',
         { progress: 97, current: siteRunes.length, total: siteRunes.length, runeCount: siteRunes.length }
       );
       return { ok: true, stage: 'applied', runeCount: siteRunes.length };
     } catch (error) {
       const reason = String(error?.message || error || 'captcha-integration-failed');
       console.warn('[Haddan Market Helper] CAPTCHA integration failed:', reason);
-      await setCaptchaStatus('error', `CAPTCHA: ошибка — ${reason}`, { progress: 0, detail: `Автоматическое решение не завершено: ${reason}. Можно ввести руны вручную.` });
+      await setCaptchaStatus('error', `CAPTCHA: РѕС€РёР±РєР° вЂ” ${reason}`, { progress: 0, detail: `РђРІС‚РѕРјР°С‚РёС‡РµСЃРєРѕРµ СЂРµС€РµРЅРёРµ РЅРµ Р·Р°РІРµСЂС€РµРЅРѕ: ${reason}. РњРѕР¶РЅРѕ РІРІРµСЃС‚Рё СЂСѓРЅС‹ РІСЂСѓС‡РЅСѓСЋ.` });
       return { ok: false, stage: 'error', error: reason };
     } finally {
       captchaSolveInFlight = false;
@@ -594,30 +528,30 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
 
     const candidates = allActions()
       .filter((el) => visible(el) && enabled(el) && !isQaLink(el))
-      .filter((el) => /фея(?:\s+поляны)?/i.test(elementLabel(el)));
+      .filter((el) => /С„РµСЏ(?:\s+РїРѕР»СЏРЅС‹)?/i.test(elementLabel(el)));
 
     if (candidates.length === 1) return candidates[0];
     if (candidates.length > 1) {
-      const exact = candidates.find((el) => /^фея(?:\s+поляны)?$/i.test(elementLabel(el)));
+      const exact = candidates.find((el) => /^С„РµСЏ(?:\s+РїРѕР»СЏРЅС‹)?$/i.test(elementLabel(el)));
       if (exact) return exact;
     }
     return null;
   }
 
   function fairyChoiceVisible(text = bodyText()) {
-    return /могу\s+дать\s+тебе\s+следующие\s+травы|выбери\s+себе/i.test(text) && !!document.querySelector('a[href*="qa.php"]');
+    return /РјРѕРіСѓ\s+РґР°С‚СЊ\s+С‚РµР±Рµ\s+СЃР»РµРґСѓСЋС‰РёРµ\s+С‚СЂР°РІС‹|РІС‹Р±РµСЂРё\s+СЃРµР±Рµ/i.test(text) && !!document.querySelector('a[href*="qa.php"]');
   }
 
   function readyDialogueVisible(text = bodyText()) {
-    return /тебе\s+нужны\s+новые\s+травы\s*,?\s*жнец/i.test(text);
+    return /С‚РµР±Рµ\s+РЅСѓР¶РЅС‹\s+РЅРѕРІС‹Рµ\s+С‚СЂР°РІС‹\s*,?\s*Р¶РЅРµС†/i.test(text);
   }
 
   function professionalExpFromRewardText(text = bodyText()) {
     const normalized = normalize(text);
     const patterns = [
-      /(?:ты\s+)?получа(?:ешь|ешься|л|ла|ете|ют|ется)\s*\+?(\d+)\s+опыта\s+жнеца/i,
-      /\+?(\d+)\s+опыта\s+жнеца/i,
-      /опыт(?:а)?\s+жнеца\s*[:+—-]?\s*(\d+)/i
+      /(?:С‚С‹\s+)?РїРѕР»СѓС‡Р°(?:РµС€СЊ|РµС€СЊСЃСЏ|Р»|Р»Р°|РµС‚Рµ|СЋС‚|РµС‚СЃСЏ)\s*\+?(\d+)\s+РѕРїС‹С‚Р°\s+Р¶РЅРµС†Р°/i,
+      /\+?(\d+)\s+РѕРїС‹С‚Р°\s+Р¶РЅРµС†Р°/i,
+      /РѕРїС‹С‚(?:Р°)?\s+Р¶РЅРµС†Р°\s*[:+вЂ”-]?\s*(\d+)/i
     ];
     for (const re of patterns) {
       const match = normalized.match(re);
@@ -628,12 +562,12 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
 
   function rewardConfirmationVisible(text = bodyText()) {
     return professionalExpFromRewardText(text) != null ||
-      /я\s+дам\s+тебе\s+\d+\s*(?:ед\.?|шт\.?).*опыта\s+жнеца/i.test(text);
+      /СЏ\s+РґР°Рј\s+С‚РµР±Рµ\s+\d+\s*(?:РµРґ\.?|С€С‚\.?).*РѕРїС‹С‚Р°\s+Р¶РЅРµС†Р°/i.test(text);
   }
 
   function pendingRewardObservation(text = bodyText()) {
     const normalized = normalize(text);
-    const match = normalized.match(/я\s+дам\s+тебе\s+(\d+)\s*(?:ед\.?|шт\.?)\s+(.+?)\.\s*ты\s+получа(?:ешь|ете)\s*\+?(\d+)\s+опыта\s+жнеца/i);
+    const match = normalized.match(/СЏ\s+РґР°Рј\s+С‚РµР±Рµ\s+(\d+)\s*(?:РµРґ\.?|С€С‚\.?)\s+(.+?)\.\s*С‚С‹\s+РїРѕР»СѓС‡Р°(?:РµС€СЊ|РµС‚Рµ)\s*\+?(\d+)\s+РѕРїС‹С‚Р°\s+Р¶РЅРµС†Р°/i);
     if (!match) return null;
     const quantity = Number(match[1]);
     const resourceName = normalize(match[2]);
@@ -647,12 +581,12 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
   }
 
   function thanksVisible() {
-    return !!findQaAction(9000, /спасибо/i);
+    return !!findQaAction(9000, /СЃРїР°СЃРёР±Рѕ/i);
   }
 
   function rewardAckEchoVisible(text = bodyText()) {
-    return /\b[^\n]{0,80}->\s*\*?Фея\s+Поляныnpc\*?\s*спасибо[.!]?/i.test(text) ||
-      /\bспасибо[.!]?[\s\S]{0,260}?я\s+дам\s+тебе\s+\d+\s*(?:ед\.?|шт\.?)/i.test(text);
+    return /\b[^\n]{0,80}->\s*\*?Р¤РµСЏ\s+РџРѕР»СЏРЅС‹npc\*?\s*СЃРїР°СЃРёР±Рѕ[.!]?/i.test(text) ||
+      /\bСЃРїР°СЃРёР±Рѕ[.!]?[\s\S]{0,260}?СЏ\s+РґР°Рј\s+С‚РµР±Рµ\s+\d+\s*(?:РµРґ\.?|С€С‚\.?)/i.test(text);
   }
 
   function likelyIdlePolianaAfterReward() {
@@ -666,16 +600,16 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
   }
 
   function fairyCooldownDialogueVisible(text = bodyText()) {
-    return /сейчас\s+пока\s+нет\s+для\s+тебя\s+работы/i.test(text);
+    return /СЃРµР№С‡Р°СЃ\s+РїРѕРєР°\s+РЅРµС‚\s+РґР»СЏ\s+С‚РµР±СЏ\s+СЂР°Р±РѕС‚С‹/i.test(text);
   }
 
   function parseFairyWaitMs(text = bodyText()) {
     if (!fairyCooldownDialogueVisible(text)) return null;
 
     // Haddan sometimes lets the displayed countdown go below zero, e.g.
-    // "Приходи где-то через -1:47:22". A negative value means the cooldown
+    // "РџСЂРёС…РѕРґРё РіРґРµ-С‚Рѕ С‡РµСЂРµР· -1:47:22". A negative value means the cooldown
     // has already expired and the dialogue should be closed immediately.
-    const clock = text.match(/приходи[^.]*?через\s+(-?\d{1,3}):([0-5]?\d)(?::([0-5]?\d))?/i);
+    const clock = text.match(/РїСЂРёС…РѕРґРё[^.]*?С‡РµСЂРµР·\s+(-?\d{1,3}):([0-5]?\d)(?::([0-5]?\d))?/i);
     if (clock) {
       const negative = String(clock[1]).startsWith('-');
       const a = Math.abs(Number(clock[1]));
@@ -685,9 +619,9 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       return negative ? 0 : Math.max(0, seconds * 1000);
     }
 
-    const hMatch = text.match(/через[^.]*?(-?\d+)\s*(?:ч|час)/i);
-    const mMatch = text.match(/через[^.]*?(-?\d+)\s*(?:м|мин)/i);
-    const sMatch = text.match(/через[^.]*?(-?\d+)\s*(?:с|сек)/i);
+    const hMatch = text.match(/С‡РµСЂРµР·[^.]*?(-?\d+)\s*(?:С‡|С‡Р°СЃ)/i);
+    const mMatch = text.match(/С‡РµСЂРµР·[^.]*?(-?\d+)\s*(?:Рј|РјРёРЅ)/i);
+    const sMatch = text.match(/С‡РµСЂРµР·[^.]*?(-?\d+)\s*(?:СЃ|СЃРµРє)/i);
     const h = Number(hMatch?.[1] || 0);
     const m = Number(mMatch?.[1] || 0);
     const sec = Number(sMatch?.[1] || 0);
@@ -720,18 +654,18 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
   }
 
   function findContinueBattleAction(text = bodyText()) {
-    // IMPORTANT: Haddan can echo old "Продолжить бой" links in the chat/history.
+    // IMPORTANT: Haddan can echo old "РџСЂРѕРґРѕР»Р¶РёС‚СЊ Р±РѕР№" links in the chat/history.
     // Never react to the link text alone; require the actual guard-dialog phrase.
     // This prevents the bot from being thrown out of an otherwise normal active fight.
-    const guardDialog = /вам\s+хотелось\s+бы\s+пообщаться[\s\S]{0,260}?ужасно\s+заняты\s+ведением\s+боя/i.test(text);
+    const guardDialog = /РІР°Рј\s+С…РѕС‚РµР»РѕСЃСЊ\s+Р±С‹\s+РїРѕРѕР±С‰Р°С‚СЊСЃСЏ[\s\S]{0,260}?СѓР¶Р°СЃРЅРѕ\s+Р·Р°РЅСЏС‚С‹\s+РІРµРґРµРЅРёРµРј\s+Р±РѕСЏ/i.test(text);
     if (!guardDialog) return null;
-    return findQaAction(2000000001, /продолжить\s+бой/i);
+    return findQaAction(2000000001, /РїСЂРѕРґРѕР»Р¶РёС‚СЊ\s+Р±РѕР№/i);
   }
 
   function findExactThanksAction() {
-    // Resource confirmation can render as a minimal page containing only "Спасибо.".
+    // Resource confirmation can render as a minimal page containing only "РЎРїР°СЃРёР±Рѕ.".
     // Do not depend on pendingReward or on the preceding reward sentence being present.
-    return findQaAction(9000, /^спасибо[.!]?$/i);
+    return findQaAction(9000, /^СЃРїР°СЃРёР±Рѕ[.!]?$/i);
   }
 
   function rewardDocumentState() {
@@ -743,7 +677,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     const sameChoiceFrame = !expectedFrame || expectedFrame === frameContextKey();
     // Time alone is not enough: several Haddan qa.php iframes can be alive at once.
     // The reward must arrive in the exact iframe/browsing context that submitted
-    // the resource choice. This prevents a stale «Спасибо.» from another frame
+    // the resource choice. This prevents a stale В«РЎРїР°СЃРёР±Рѕ.В» from another frame
     // from cancelling the real reward response.
     const freshDocument = sameChoiceFrame &&
       DOCUMENT_STARTED_AT >= Math.max(choiceAt - 250, choiceDocumentStartedAt);
@@ -754,36 +688,36 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
 
   function findBattleReturnAction(text = bodyText()) {
     // Typical Poliana result page:
-    //   "Вы получили +20 опыта"
-    //   "Вы нанесли урон: ..."
-    //   "Вы создали ... новых трупов"
-    //   [Вернуться] -> /room/room.php
+    //   "Р’С‹ РїРѕР»СѓС‡РёР»Рё +20 РѕРїС‹С‚Р°"
+    //   "Р’С‹ РЅР°РЅРµСЃР»Рё СѓСЂРѕРЅ: ..."
+    //   "Р’С‹ СЃРѕР·РґР°Р»Рё ... РЅРѕРІС‹С… С‚СЂСѓРїРѕРІ"
+    //   [Р’РµСЂРЅСѓС‚СЊСЃСЏ] -> /room/room.php
     // Require a result-page marker plus an exact Return label so we do not click
     // unrelated navigation links that happen to point to room.php.
-    const resultPage = /вы\s+получили\s*\+?\d+\s+опыта/i.test(text) ||
-      /вы\s+нанесли\s+урон/i.test(text) ||
-      /вы\s+создали\s+\d+\s+новых?\s+труп/i.test(text);
+    const resultPage = /РІС‹\s+РїРѕР»СѓС‡РёР»Рё\s*\+?\d+\s+РѕРїС‹С‚Р°/i.test(text) ||
+      /РІС‹\s+РЅР°РЅРµСЃР»Рё\s+СѓСЂРѕРЅ/i.test(text) ||
+      /РІС‹\s+СЃРѕР·РґР°Р»Рё\s+\d+\s+РЅРѕРІС‹С…?\s+С‚СЂСѓРї/i.test(text);
     if (!resultPage) return null;
 
     const actions = allActions().filter((el) => visible(el) && enabled(el));
     const exact = actions.find((el) => {
-      if (!/^вернуться[.!]?$/i.test(elementLabel(el))) return false;
+      if (!/^РІРµСЂРЅСѓС‚СЊСЃСЏ[.!]?$/i.test(elementLabel(el))) return false;
       const path = hrefPath(el);
       return !path || /\/room\/room\.php$/i.test(path);
     });
     if (exact) return exact;
 
     return actions.find((el) =>
-      /^вернуться[.!]?$/i.test(elementLabel(el)) && /\/room\/room\.php$/i.test(hrefPath(el))
+      /^РІРµСЂРЅСѓС‚СЊСЃСЏ[.!]?$/i.test(elementLabel(el)) && /\/room\/room\.php$/i.test(hrefPath(el))
     ) || null;
   }
 
   function battleInterfaceVisible(text = bodyText()) {
     let score = 0;
-    if (/история\s+боя/i.test(text)) score += 1;
-    if (/\bраунд\s*\d+/i.test(text)) score += 1;
-    if (/\bударить\s*!?/i.test(text)) score += 1;
-    if (/между\s+двумя[^.]{0,120}воинственными\s+сторонами/i.test(text)) score += 1;
+    if (/РёСЃС‚РѕСЂРёСЏ\s+Р±РѕСЏ/i.test(text)) score += 1;
+    if (/\bСЂР°СѓРЅРґ\s*\d+/i.test(text)) score += 1;
+    if (/\bСѓРґР°СЂРёС‚СЊ\s*!?/i.test(text)) score += 1;
+    if (/РјРµР¶РґСѓ\s+РґРІСѓРјСЏ[^.]{0,120}РІРѕРёРЅСЃС‚РІРµРЅРЅС‹РјРё\s+СЃС‚РѕСЂРѕРЅР°РјРё/i.test(text)) score += 1;
     return score >= 2;
   }
 
@@ -863,22 +797,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
   }
 
   async function clearRewardTransaction(extra = {}) {
-    await saveRuntime({
-      pendingReward: false,
-      pendingRewardSince: 0,
-      pendingRewardResource: '',
-      pendingRewardResourceId: '',
-      pendingRewardQuantity: 0,
-      pendingRewardRankKey: '',
-      rewardChoiceAt: 0,
-      rewardChoiceDocumentStartedAt: 0,
-    // Stable identity of the iframe/browsing context that submitted the resource.
-    // Only that same frame may process and acknowledge the reward.
-    rewardChoiceFrameKey: '',
-      rewardAcknowledgingUntil: 0,
-      rewardAckStartedAt: 0,
-      ...extra
-    });
+    await saveRuntime(clearRewardRuntimePatch(extra));
   }
 
   function formatCountdown(ms) {
@@ -907,7 +826,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     try {
       await chrome.storage.local.set({
         [AUTOMATION_KEY]: settings,
-        [BOT_STATUS_KEY]: { text: `Фея выбрана: ${signature.label || signature.title || signature.hrefPath || 'действие'}`, ts: Date.now(), frame: location.pathname }
+        [BOT_STATUS_KEY]: { text: `Р¤РµСЏ РІС‹Р±СЂР°РЅР°: ${signature.label || signature.title || signature.hrefPath || 'РґРµР№СЃС‚РІРёРµ'}`, ts: Date.now(), frame: location.pathname }
       });
     } catch (e) {
       console.warn('[Haddan Market Helper] Fairy capture failed', e);
@@ -962,7 +881,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
           const ok = await clickInMainWorld(el);
           if (!ok) {
             console.warn('[Haddan Market Helper] MAIN world auto click failed', key);
-            await setStatus('Ошибка автоматического клика');
+            await setStatus('РћС€РёР±РєР° Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРѕРіРѕ РєР»РёРєР°');
           }
         } else {
           el.click();
@@ -1007,15 +926,15 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       }
 
       if (!settings.solveCaptcha) {
-        await setCaptchaStatus('manual', 'CAPTCHA: ручной режим — введи руны вручную', { progress: 0 });
+        await setCaptchaStatus('manual', 'CAPTCHA: СЂСѓС‡РЅРѕР№ СЂРµР¶РёРј вЂ” РІРІРµРґРё СЂСѓРЅС‹ РІСЂСѓС‡РЅСѓСЋ', { progress: 0 });
       } else if (!settings.captchaApiToken) {
-        await setCaptchaStatus('manual', 'CAPTCHA: API token не задан — нужен ручной ввод', { progress: 0 });
+        await setCaptchaStatus('manual', 'CAPTCHA: API token РЅРµ Р·Р°РґР°РЅ вЂ” РЅСѓР¶РµРЅ СЂСѓС‡РЅРѕР№ РІРІРѕРґ', { progress: 0 });
       } else if (captchaHookResult?.stage === 'challenge-changed') {
-        await setCaptchaStatus('error', 'CAPTCHA: изображение изменилось во время запроса', { progress: 0, detail: 'Challenge сменился до применения ответа. Введи текущие руны вручную.' });
+        await setCaptchaStatus('error', 'CAPTCHA: РёР·РѕР±СЂР°Р¶РµРЅРёРµ РёР·РјРµРЅРёР»РѕСЃСЊ РІРѕ РІСЂРµРјСЏ Р·Р°РїСЂРѕСЃР°', { progress: 0, detail: 'Challenge СЃРјРµРЅРёР»СЃСЏ РґРѕ РїСЂРёРјРµРЅРµРЅРёСЏ РѕС‚РІРµС‚Р°. Р’РІРµРґРё С‚РµРєСѓС‰РёРµ СЂСѓРЅС‹ РІСЂСѓС‡РЅСѓСЋ.' });
       } else if (captchaHookResult?.stage === 'challenge-gone') {
-        await setCaptchaStatus('waiting', 'CAPTCHA: проверка уже исчезла, жду обновление состояния…', { progress: 98 });
+        await setCaptchaStatus('waiting', 'CAPTCHA: РїСЂРѕРІРµСЂРєР° СѓР¶Рµ РёСЃС‡РµР·Р»Р°, Р¶РґСѓ РѕР±РЅРѕРІР»РµРЅРёРµ СЃРѕСЃС‚РѕСЏРЅРёСЏвЂ¦', { progress: 98 });
       } else if (captchaHookResult?.stage === 'apply-failed') {
-        await setCaptchaStatus('error', 'CAPTCHA: не удалось применить распознанные руны', { progress: 0, detail: 'API ответ получен, но ввод на странице не подтвердился. Можно завершить CAPTCHA вручную.' });
+        await setCaptchaStatus('error', 'CAPTCHA: РЅРµ СѓРґР°Р»РѕСЃСЊ РїСЂРёРјРµРЅРёС‚СЊ СЂР°СЃРїРѕР·РЅР°РЅРЅС‹Рµ СЂСѓРЅС‹', { progress: 0, detail: 'API РѕС‚РІРµС‚ РїРѕР»СѓС‡РµРЅ, РЅРѕ РІРІРѕРґ РЅР° СЃС‚СЂР°РЅРёС†Рµ РЅРµ РїРѕРґС‚РІРµСЂРґРёР»СЃСЏ. РњРѕР¶РЅРѕ Р·Р°РІРµСЂС€РёС‚СЊ CAPTCHA РІСЂСѓС‡РЅСѓСЋ.' });
       } else if (captchaHookResult?.stage === 'error') {
         // captchaIntegrationHook already stored a structured error status.
       } else if (captchaHookResult?.ok) {
@@ -1023,15 +942,15 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       } else if (!firstDetection && lastCaptchaDecode?.applied) {
         await setCaptchaStatus(
           'waiting',
-          'CAPTCHA: ответ отправлен, жду переход страницы…',
+          'CAPTCHA: РѕС‚РІРµС‚ РѕС‚РїСЂР°РІР»РµРЅ, Р¶РґСѓ РїРµСЂРµС…РѕРґ СЃС‚СЂР°РЅРёС†С‹вЂ¦',
           { progress: 97, current: lastCaptchaDecode.runeCount, total: lastCaptchaDecode.runeCount, runeCount: lastCaptchaDecode.runeCount }
         );
       } else if (!firstDetection && lastCaptchaDecode && !lastCaptchaDecode.applied) {
-        await setCaptchaStatus('error', 'CAPTCHA: распознано, но ввод не завершён', { progress: 0, detail: 'Автоматический ввод не подтвердился. Можно продолжить вручную.' });
+        await setCaptchaStatus('error', 'CAPTCHA: СЂР°СЃРїРѕР·РЅР°РЅРѕ, РЅРѕ РІРІРѕРґ РЅРµ Р·Р°РІРµСЂС€С‘РЅ', { progress: 0, detail: 'РђРІС‚РѕРјР°С‚РёС‡РµСЃРєРёР№ РІРІРѕРґ РЅРµ РїРѕРґС‚РІРµСЂРґРёР»СЃСЏ. РњРѕР¶РЅРѕ РїСЂРѕРґРѕР»Р¶РёС‚СЊ РІСЂСѓС‡РЅСѓСЋ.' });
       } else if (!firstDetection && settings.solveCaptcha) {
         // Do not overwrite the CAPTCHA frame's detailed progress from another scan.
       } else {
-        await setCaptchaStatus('manual', 'CAPTCHA: автоматика на паузе — ручной ввод', { progress: 0 });
+        await setCaptchaStatus('manual', 'CAPTCHA: Р°РІС‚РѕРјР°С‚РёРєР° РЅР° РїР°СѓР·Рµ вЂ” СЂСѓС‡РЅРѕР№ РІРІРѕРґ', { progress: 0 });
       }
       scheduleScan(500);
       return;
@@ -1046,14 +965,14 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         // In automatic mode the CAPTCHA-owning frame publishes detailed progress.
         // Other frames must not overwrite it with the old manual-pause message.
         if (!settings.solveCaptcha) {
-          await setCaptchaStatus('manual', 'CAPTCHA: жду ручной ввод', { progress: 0 });
+          await setCaptchaStatus('manual', 'CAPTCHA: Р¶РґСѓ СЂСѓС‡РЅРѕР№ РІРІРѕРґ', { progress: 0 });
         }
         scheduleScan(500);
         return;
       }
 
       await resetTransientBattleAfterCaptcha();
-      await setCaptchaStatus('done', 'CAPTCHA пройдена: возобновляю цикл Поляны', { progress: 100 });
+      await setCaptchaStatus('done', 'CAPTCHA РїСЂРѕР№РґРµРЅР°: РІРѕР·РѕР±РЅРѕРІР»СЏСЋ С†РёРєР» РџРѕР»СЏРЅС‹', { progress: 100 });
       scheduleScan(900);
       return;
     }
@@ -1064,7 +983,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     if (continueBattle) {
       // This dialogue may remain visible for a while even after the first click,
       // and Haddan also echoes every click into chat. Clicking it on every scan
-      // therefore creates an endless "Продолжить бой" loop. Treat recovery as
+      // therefore creates an endless "РџСЂРѕРґРѕР»Р¶РёС‚СЊ Р±РѕР№" loop. Treat recovery as
       // a one-shot operation with one slow retry at most.
       await touchBattleExpected(60000);
       if (!runtime.battleActive) await markBattleActive();
@@ -1078,7 +997,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
           battleRecoveryLastClickAt: now,
           battleRecoveryAttempts: 1
         });
-        await clickAction(continueBattle, 'continue-battle', 'Бой: возвращаюсь в бой', 160);
+        await clickAction(continueBattle, 'continue-battle', 'Р‘РѕР№: РІРѕР·РІСЂР°С‰Р°СЋСЃСЊ РІ Р±РѕР№', 160);
         scheduleScan(600);
         return;
       }
@@ -1090,12 +1009,12 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
           battleRecoveryLastClickAt: now,
           battleRecoveryAttempts: attempts + 1
         });
-        await clickAction(continueBattle, `continue-battle-retry-${attempts + 1}`, 'Бой: повторно возвращаюсь в бой', 160);
+        await clickAction(continueBattle, `continue-battle-retry-${attempts + 1}`, 'Р‘РѕР№: РїРѕРІС‚РѕСЂРЅРѕ РІРѕР·РІСЂР°С‰Р°СЋСЃСЊ РІ Р±РѕР№', 160);
         scheduleScan(700);
         return;
       }
 
-      await setStatus('Бой: жду возврат в бой');
+      await setStatus('Р‘РѕР№: Р¶РґСѓ РІРѕР·РІСЂР°С‚ РІ Р±РѕР№');
       scheduleScan(500);
       return;
     }
@@ -1112,7 +1031,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         battleStartAttempts: 0
       });
       if (runtime.fairyWaitUntil) await saveRuntime({ fairyWaitUntil: 0 });
-      await clickAction(battleReturn, 'battle-return', 'Бой завершен: возвращаюсь с Поляны', 180);
+      await clickAction(battleReturn, 'battle-return', 'Р‘РѕР№ Р·Р°РІРµСЂС€РµРЅ: РІРѕР·РІСЂР°С‰Р°СЋСЃСЊ СЃ РџРѕР»СЏРЅС‹', 180);
       return;
     }
 
@@ -1138,7 +1057,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         });
       }
 
-      await setStatus('Бой: жду штатный автобой Haddan');
+      await setStatus('Р‘РѕР№: Р¶РґСѓ С€С‚Р°С‚РЅС‹Р№ Р°РІС‚РѕР±РѕР№ Haddan');
       scheduleScan(500);
       return;
     }
@@ -1147,7 +1066,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     //    allowed to drive the Fairy FSM. Only the actual battle/result/recovery
     //    states above may clear this lock.
     if (runtime.battleActive) {
-      await setStatus('Бой: активен, жду штатный автобой/результат');
+      await setStatus('Р‘РѕР№: Р°РєС‚РёРІРµРЅ, Р¶РґСѓ С€С‚Р°С‚РЅС‹Р№ Р°РІС‚РѕР±РѕР№/СЂРµР·СѓР»СЊС‚Р°С‚');
       scheduleScan(500);
       return;
     }
@@ -1161,13 +1080,13 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
 
       // A stale cooldown iframe from the previous cycle can remain alive while a
       // new reward is being issued. It must not release the current transaction.
-      // Only a cooldown document created after our native «Спасибо.» click proves
+      // Only a cooldown document created after our native В«РЎРїР°СЃРёР±Рѕ.В» click proves
       // that this particular reward flow has completed.
       if (runtime.pendingReward) {
         const ackStartedAt = Number(runtime.rewardAckStartedAt || 0);
         const sameChoiceFrame = !runtime.rewardChoiceFrameKey || runtime.rewardChoiceFrameKey === frameContextKey();
         const freshAfterAck = ackStartedAt && sameChoiceFrame && DOCUMENT_STARTED_AT >= ackStartedAt - 250;
-        // If the user manually clicked «Спасибо.», there is no rewardAckStartedAt.
+        // If the user manually clicked В«РЎРїР°СЃРёР±Рѕ.В», there is no rewardAckStartedAt.
         // A new cooldown document in the SAME iframe after the choice is enough to
         // recover the FSM without letting an unrelated stale iframe release it.
         const manualAckAfterChoice = !ackStartedAt && sameChoiceFrame &&
@@ -1175,8 +1094,8 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         if (!freshAfterAck && !manualAckAfterChoice) {
           const captured = Number(runtime.lastRewardCapturedAt || 0) >= Number(runtime.rewardChoiceAt || 0);
           await setStatus(captured
-            ? 'Фея: опыт сохранен, жду завершение «Спасибо»'
-            : 'Фея: жду точную строку награды, «Спасибо» не нажимаю');
+            ? 'Р¤РµСЏ: РѕРїС‹С‚ СЃРѕС…СЂР°РЅРµРЅ, Р¶РґСѓ Р·Р°РІРµСЂС€РµРЅРёРµ В«РЎРїР°СЃРёР±РѕВ»'
+            : 'Р¤РµСЏ: Р¶РґСѓ С‚РѕС‡РЅСѓСЋ СЃС‚СЂРѕРєСѓ РЅР°РіСЂР°РґС‹, В«РЎРїР°СЃРёР±РѕВ» РЅРµ РЅР°Р¶РёРјР°СЋ');
           scheduleScan(300);
           return;
         }
@@ -1199,13 +1118,13 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
           fairyCooldownTransitionUntil: Date.now() + 2500
         });
 
-        const close = findQaAction(9000, /хорошо.*подойду.*позже/i);
+        const close = findQaAction(9000, /С…РѕСЂРѕС€Рѕ.*РїРѕРґРѕР№РґСѓ.*РїРѕР·Р¶Рµ/i);
         if (close) {
-          await clickAction(close, 'fairy-close-timer-expired', 'Фея: таймер завершен, закрываю диалог', 220);
+          await clickAction(close, 'fairy-close-timer-expired', 'Р¤РµСЏ: С‚Р°Р№РјРµСЂ Р·Р°РІРµСЂС€РµРЅ, Р·Р°РєСЂС‹РІР°СЋ РґРёР°Р»РѕРі', 220);
           return;
         }
 
-        await setStatus('Фея: таймер завершен, жду выход из диалога');
+        await setStatus('Р¤РµСЏ: С‚Р°Р№РјРµСЂ Р·Р°РІРµСЂС€РµРЅ, Р¶РґСѓ РІС‹С…РѕРґ РёР· РґРёР°Р»РѕРіР°');
         scheduleScan(600);
         return;
       }
@@ -1226,13 +1145,13 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
             fairyCooldownTransitionUntil: Date.now() + 2500
           });
 
-          const close = findQaAction(9000, /хорошо.*подойду.*позже/i);
+          const close = findQaAction(9000, /С…РѕСЂРѕС€Рѕ.*РїРѕРґРѕР№РґСѓ.*РїРѕР·Р¶Рµ/i);
           if (close) {
-            await clickAction(close, 'fairy-close-stale-positive-timer', 'Фея: таймер завершен, закрываю диалог', 220);
+            await clickAction(close, 'fairy-close-stale-positive-timer', 'Р¤РµСЏ: С‚Р°Р№РјРµСЂ Р·Р°РІРµСЂС€РµРЅ, Р·Р°РєСЂС‹РІР°СЋ РґРёР°Р»РѕРі', 220);
             return;
           }
 
-          await setStatus('Фея: таймер завершен, жду выход из диалога');
+          await setStatus('Р¤РµСЏ: С‚Р°Р№РјРµСЂ Р·Р°РІРµСЂС€РµРЅ, Р¶РґСѓ РІС‹С…РѕРґ РёР· РґРёР°Р»РѕРіР°');
           scheduleScan(600);
           return;
         }
@@ -1246,13 +1165,13 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
           // deadline. A genuinely reopened Fairy dialogue is a new document and
           // therefore has DOCUMENT_STARTED_AT >= the expiry watermark.
           if (minDocumentStartedAt && DOCUMENT_STARTED_AT < minDocumentStartedAt) {
-            const close = findQaAction(9000, /хорошо.*подойду.*позже/i);
+            const close = findQaAction(9000, /С…РѕСЂРѕС€Рѕ.*РїРѕРґРѕР№РґСѓ.*РїРѕР·Р¶Рµ/i);
             if (close) {
-              await clickAction(close, 'fairy-close-stale-document', 'Фея: старый таймер уже завершен, закрываю диалог', 220);
+              await clickAction(close, 'fairy-close-stale-document', 'Р¤РµСЏ: СЃС‚Р°СЂС‹Р№ С‚Р°Р№РјРµСЂ СѓР¶Рµ Р·Р°РІРµСЂС€РµРЅ, Р·Р°РєСЂС‹РІР°СЋ РґРёР°Р»РѕРі', 220);
               return;
             }
 
-            await setStatus('Фея: старый таймер уже завершен, жду новый диалог');
+            await setStatus('Р¤РµСЏ: СЃС‚Р°СЂС‹Р№ С‚Р°Р№РјРµСЂ СѓР¶Рµ Р·Р°РІРµСЂС€РµРЅ, Р¶РґСѓ РЅРѕРІС‹Р№ РґРёР°Р»РѕРі');
             scheduleScan(600);
             return;
           }
@@ -1263,24 +1182,24 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
 
         const remaining = Math.max(0, (runtime.fairyWaitUntil || 0) - Date.now());
         if (remaining > 0) {
-          await setStatus(`Фея: ждать ${formatCountdown(remaining)}`);
+          await setStatus(`Р¤РµСЏ: Р¶РґР°С‚СЊ ${formatCountdown(remaining)}`);
           scheduleScan(1000);
           return;
         }
       }
 
       // Unknown timer format: remain in the current dialogue. Never fall through to
-      // "Иду к Фее" while the cooldown message is visibly open.
-      await setStatus('Фея: вижу таймер, не удалось разобрать время');
+      // "РРґСѓ Рє Р¤РµРµ" while the cooldown message is visibly open.
+      await setStatus('Р¤РµСЏ: РІРёР¶Сѓ С‚Р°Р№РјРµСЂ, РЅРµ СѓРґР°Р»РѕСЃСЊ СЂР°Р·РѕР±СЂР°С‚СЊ РІСЂРµРјСЏ');
       scheduleScan(600);
       return;
     }
 
     // 3) A future Fairy deadline is a GLOBAL lock shared by all Haddan frames.
-    //    This prevents an idle/chat frame from clicking Fairy or an old "Спасибо"
+    //    This prevents an idle/chat frame from clicking Fairy or an old "РЎРїР°СЃРёР±Рѕ"
     //    while another frame is legitimately waiting for the cooldown.
     if (runtime.fairyWaitUntil && runtime.fairyWaitUntil > now) {
-      await setStatus(`Фея: ждать ${formatCountdown(runtime.fairyWaitUntil - now)}`);
+      await setStatus(`Р¤РµСЏ: Р¶РґР°С‚СЊ ${formatCountdown(runtime.fairyWaitUntil - now)}`);
       scheduleScan(1000);
       return;
     }
@@ -1291,16 +1210,16 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     // A reward choice is a GLOBAL transaction across all Haddan frames. While it
     // is open, stale ready/choice/chat frames are forbidden from talking to the
     // Fairy. The only frames allowed through are the current reward response
-    // (XP text / «Спасибо.») handled below. v0.6.27 released this lock as soon as
-    // XP was parsed, leaving a race where another frame could show «Иду к Фее»
-    // before «Спасибо.» had completed.
+    // (XP text / В«РЎРїР°СЃРёР±Рѕ.В») handled below. v0.6.27 released this lock as soon as
+    // XP was parsed, leaving a race where another frame could show В«РРґСѓ Рє Р¤РµРµВ»
+    // before В«РЎРїР°СЃРёР±Рѕ.В» had completed.
     if (runtime.pendingReward) {
       const pendingRewardDoc = rewardDocumentState();
       const exactThanksHere = findExactThanksAction();
       const captured = Number(runtime.lastRewardCapturedAt || 0) >= Number(runtime.rewardChoiceAt || 0);
       const rewardAge = now - Number(runtime.pendingRewardSince || now);
 
-      // Recovery for the case where Haddan accepted «Спасибо.» and closed the
+      // Recovery for the case where Haddan accepted В«РЎРїР°СЃРёР±Рѕ.В» and closed the
       // reward iframe before this frame could observe the post-ACK transition.
       // We only release after XP capture, so an unrecorded reward is still protected.
       if (captured && (rewardAckEchoVisible(text) || (rewardAge >= 5000 && likelyIdlePolianaAfterReward()))) {
@@ -1311,7 +1230,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
 
       if (captured && rewardAge >= 30000) {
         await clearRewardTransaction();
-        await setStatus('Фея: опыт сохранен · таймаут ожидания «Спасибо», возобновляю цикл');
+        await setStatus('Р¤РµСЏ: РѕРїС‹С‚ СЃРѕС…СЂР°РЅРµРЅ В· С‚Р°Р№РјР°СѓС‚ РѕР¶РёРґР°РЅРёСЏ В«РЎРїР°СЃРёР±РѕВ», РІРѕР·РѕР±РЅРѕРІР»СЏСЋ С†РёРєР»');
         scheduleScan(250);
         return;
       }
@@ -1320,7 +1239,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       // Haddan can also update the SAME qa.php document in place. In that case
       // DOCUMENT_STARTED_AT predates rewardChoiceAt, so freshDocument stays false
       // forever even though fairy.js has already captured the exact matching
-      // reward sentence. Once that exact reward is captured, an exact «Спасибо.»
+      // reward sentence. Once that exact reward is captured, an exact В«РЎРїР°СЃРёР±Рѕ.В»
       // in the same iframe is safe evidence of the current transaction.
       const rewardSurfaceHere =
         (pendingRewardDoc.freshDocument &&
@@ -1346,12 +1265,12 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       } else if (!rewardSurfaceHere) {
         if (captured) {
           await setStatus(runtime.rewardAckStartedAt
-            ? 'Фея: опыт сохранен · жду перехода после «Спасибо»'
-            : 'Фея: опыт сохранен · жду «Спасибо» в окне награды');
+            ? 'Р¤РµСЏ: РѕРїС‹С‚ СЃРѕС…СЂР°РЅРµРЅ В· Р¶РґСѓ РїРµСЂРµС…РѕРґР° РїРѕСЃР»Рµ В«РЎРїР°СЃРёР±РѕВ»'
+            : 'Р¤РµСЏ: РѕРїС‹С‚ СЃРѕС…СЂР°РЅРµРЅ В· Р¶РґСѓ В«РЎРїР°СЃРёР±РѕВ» РІ РѕРєРЅРµ РЅР°РіСЂР°РґС‹');
         } else if (rewardAge >= 15000) {
-          await setStatus(`Фея: нет строки награды для ${runtime.pendingRewardResource || 'ресурса'} ${runtime.pendingRewardQuantity || ''} шт. — «Спасибо» не нажимаю`);
+          await setStatus(`Р¤РµСЏ: РЅРµС‚ СЃС‚СЂРѕРєРё РЅР°РіСЂР°РґС‹ РґР»СЏ ${runtime.pendingRewardResource || 'СЂРµСЃСѓСЂСЃР°'} ${runtime.pendingRewardQuantity || ''} С€С‚. вЂ” В«РЎРїР°СЃРёР±РѕВ» РЅРµ РЅР°Р¶РёРјР°СЋ`);
         } else {
-          await setStatus('Фея: жду точную строку награды с опытом Жнеца');
+          await setStatus('Р¤РµСЏ: Р¶РґСѓ С‚РѕС‡РЅСѓСЋ СЃС‚СЂРѕРєСѓ РЅР°РіСЂР°РґС‹ СЃ РѕРїС‹С‚РѕРј Р–РЅРµС†Р°');
         }
         scheduleScan(300);
         return;
@@ -1364,7 +1283,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     if (fairyChoiceVisible(text)) {
       await clearBattleActive();
       await clearBattleExpected();
-      await setStatus(settings.collectResources ? (settings.resourceMode === 'experience' ? 'Фея: выбираю ресурс с максимальным опытом' : 'Фея: выбираю самый выгодный ресурс') : 'Фея: жду ручной выбор ресурса');
+      await setStatus(settings.collectResources ? (settings.resourceMode === 'experience' ? 'Р¤РµСЏ: РІС‹Р±РёСЂР°СЋ СЂРµСЃСѓСЂСЃ СЃ РјР°РєСЃРёРјР°Р»СЊРЅС‹Рј РѕРїС‹С‚РѕРј' : 'Р¤РµСЏ: РІС‹Р±РёСЂР°СЋ СЃР°РјС‹Р№ РІС‹РіРѕРґРЅС‹Р№ СЂРµСЃСѓСЂСЃ') : 'Р¤РµСЏ: Р¶РґСѓ СЂСѓС‡РЅРѕР№ РІС‹Р±РѕСЂ СЂРµСЃСѓСЂСЃР°');
       scheduleScan(600);
       return;
     }
@@ -1373,13 +1292,13 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     // IMPORTANT: do not set battleActive here. The qa.php click is asynchronous
     // and can be throttled by canClickAgain(). In <=0.6.30 we set battleActive
     // before knowing whether the click was actually scheduled, which could leave
-    // the visible «Да, мне нужны новые травы» dialog open forever while every
-    // frame reported «жду штатный автобой». battleActive is now set only when a
+    // the visible В«Р”Р°, РјРЅРµ РЅСѓР¶РЅС‹ РЅРѕРІС‹Рµ С‚СЂР°РІС‹В» dialog open forever while every
+    // frame reported В«Р¶РґСѓ С€С‚Р°С‚РЅС‹Р№ Р°РІС‚РѕР±РѕР№В». battleActive is now set only when a
     // real fight surface is observed above.
     if (readyDialogueVisible(text)) {
       if (runtime.fairyWaitUntil) await saveRuntime({ fairyWaitUntil: 0 });
 
-      const start = findQaAction(100, /да.*нужны.*новые\s+травы/i);
+      const start = findQaAction(100, /РґР°.*РЅСѓР¶РЅС‹.*РЅРѕРІС‹Рµ\s+С‚СЂР°РІС‹/i);
       if (start) {
         const frameKey = frameContextKey();
         const sameRequestFrame = runtime.battleStartRequestFrameKey === frameKey;
@@ -1394,7 +1313,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         const clicked = await clickAction(
           start,
           attempts > 0 ? `fairy-start-work-retry-${attempts + 1}` : 'fairy-start-work',
-          attempts > 0 ? 'Фея: повторно запускаю сбор' : 'Фея: запускаю следующий сбор',
+          attempts > 0 ? 'Р¤РµСЏ: РїРѕРІС‚РѕСЂРЅРѕ Р·Р°РїСѓСЃРєР°СЋ СЃР±РѕСЂ' : 'Р¤РµСЏ: Р·Р°РїСѓСЃРєР°СЋ СЃР»РµРґСѓСЋС‰РёР№ СЃР±РѕСЂ',
           450
         );
 
@@ -1416,16 +1335,16 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         // Most commonly this means the previous Fairy click is still inside the
         // click-throttle window. Stay on this dialog and retry; do NOT mark a fight
         // active until Haddan actually starts one.
-        await setStatus('Фея: готова начать сбор · жду возможность нажать «Да»');
+        await setStatus('Р¤РµСЏ: РіРѕС‚РѕРІР° РЅР°С‡Р°С‚СЊ СЃР±РѕСЂ В· Р¶РґСѓ РІРѕР·РјРѕР¶РЅРѕСЃС‚СЊ РЅР°Р¶Р°С‚СЊ В«Р”Р°В»');
         scheduleScan(350);
         return;
       }
     }
 
-    // 6) Reward confirmation. v0.6.29 deliberately has NO «Спасибо» fallback.
+    // 6) Reward confirmation. v0.6.29 deliberately has NO В«РЎРїР°СЃРёР±РѕВ» fallback.
     // We acknowledge only after this exact iframe shows the exact server sentence
     // for the resource/quantity that was just selected. The logs showed that the
-    // old 8-second fallback could click a stale «Спасибо.» in another qa.php frame,
+    // old 8-second fallback could click a stale В«РЎРїР°СЃРёР±Рѕ.В» in another qa.php frame,
     // aborting the genuine reward response before Haddan wrote the NPC XP line.
     const rewardDoc = rewardDocumentState();
     const exactReward = pendingRewardObservation(text);
@@ -1444,13 +1363,13 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
 
       const captured = capturedNow || Number(runtime.lastRewardCapturedAt || 0) >= Number(runtime.rewardChoiceAt || 0);
       if (!captured) {
-        await setStatus(`Фея: +${exactReward.exp} опыта Жнеца · сохраняю данные`);
+        await setStatus(`Р¤РµСЏ: +${exactReward.exp} РѕРїС‹С‚Р° Р–РЅРµС†Р° В· СЃРѕС…СЂР°РЅСЏСЋ РґР°РЅРЅС‹Рµ`);
         scheduleScan(250);
         return;
       }
 
       if (!exactThanks) {
-        await setStatus(`Фея: +${exactReward.exp} опыта сохранено · жду «Спасибо»`);
+        await setStatus(`Р¤РµСЏ: +${exactReward.exp} РѕРїС‹С‚Р° СЃРѕС…СЂР°РЅРµРЅРѕ В· Р¶РґСѓ В«РЎРїР°СЃРёР±РѕВ»`);
         scheduleScan(250);
         return;
       }
@@ -1464,7 +1383,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         const clicked = await clickAction(
           exactThanks,
           'fairy-thanks-exact-reward',
-          `Фея: +${exactReward.exp} опыта Жнеца · опыт сохранен`,
+          `Р¤РµСЏ: +${exactReward.exp} РѕРїС‹С‚Р° Р–РЅРµС†Р° В· РѕРїС‹С‚ СЃРѕС…СЂР°РЅРµРЅ`,
           1800
         );
         if (clicked) {
@@ -1474,19 +1393,19 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
             rewardAcknowledgingUntil: ackStartedAt + 12000
           });
         } else {
-          await setStatus(`Фея: +${exactReward.exp} опыта сохранено · жду возможность подтвердить «Спасибо»`);
+          await setStatus(`Р¤РµСЏ: +${exactReward.exp} РѕРїС‹С‚Р° СЃРѕС…СЂР°РЅРµРЅРѕ В· Р¶РґСѓ РІРѕР·РјРѕР¶РЅРѕСЃС‚СЊ РїРѕРґС‚РІРµСЂРґРёС‚СЊ В«РЎРїР°СЃРёР±РѕВ»`);
           scheduleScan(350);
         }
       } else {
-        await setStatus(`Фея: +${exactReward.exp} опыта сохранено · закрываю награду`);
+        await setStatus(`Р¤РµСЏ: +${exactReward.exp} РѕРїС‹С‚Р° СЃРѕС…СЂР°РЅРµРЅРѕ В· Р·Р°РєСЂС‹РІР°СЋ РЅР°РіСЂР°РґСѓ`);
       }
       return;
     }
 
-    // The exact reward sentence may disappear before «Спасибо.» appears when
+    // The exact reward sentence may disappear before В«РЎРїР°СЃРёР±Рѕ.В» appears when
     // Haddan updates qa.php in place. fairy.js already records lastRewardCapturedAt
     // only after seeing the exact resource + quantity + XP sentence for this
-    // pending choice. Therefore a captured reward + exact «Спасибо.» in the same
+    // pending choice. Therefore a captured reward + exact В«РЎРїР°СЃРёР±Рѕ.В» in the same
     // iframe is safe to acknowledge even if the sentence is no longer in DOM.
     const capturedReward = Number(runtime.lastRewardCapturedAt || 0) >= Number(runtime.rewardChoiceAt || 0);
     if (runtime.pendingReward && capturedReward && exactThanks && rewardDoc.sameChoiceFrame) {
@@ -1496,7 +1415,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         const clicked = await clickAction(
           exactThanks,
           'fairy-thanks-captured-reward',
-          `Фея: опыт сохранен · подтверждаю «Спасибо»`,
+          `Р¤РµСЏ: РѕРїС‹С‚ СЃРѕС…СЂР°РЅРµРЅ В· РїРѕРґС‚РІРµСЂР¶РґР°СЋ В«РЎРїР°СЃРёР±РѕВ»`,
           650
         );
         if (clicked) {
@@ -1506,32 +1425,32 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
             rewardAcknowledgingUntil: ackStartedAt + 12000
           });
         } else {
-          await setStatus('Фея: опыт сохранен · жду возможность подтвердить «Спасибо»');
+          await setStatus('Р¤РµСЏ: РѕРїС‹С‚ СЃРѕС…СЂР°РЅРµРЅ В· Р¶РґСѓ РІРѕР·РјРѕР¶РЅРѕСЃС‚СЊ РїРѕРґС‚РІРµСЂРґРёС‚СЊ В«РЎРїР°СЃРёР±РѕВ»');
           scheduleScan(350);
         }
       } else {
-        await setStatus('Фея: опыт сохранен · закрываю награду');
+        await setStatus('Р¤РµСЏ: РѕРїС‹С‚ СЃРѕС…СЂР°РЅРµРЅ В· Р·Р°РєСЂС‹РІР°СЋ РЅР°РіСЂР°РґСѓ');
       }
       return;
     }
 
-    // A «Спасибо.» without a previously captured matching reward sentence is
+    // A В«РЎРїР°СЃРёР±Рѕ.В» without a previously captured matching reward sentence is
     // still treated as unsafe. Never auto-click it.
     // Never auto-click it. This is intentionally conservative: START/STOP or a
     // manual click can recover, but the plugin will not sacrifice the XP record.
     if (runtime.pendingReward && exactThanks && rewardDoc.sameChoiceFrame) {
-      await setStatus(`Фея: вижу «Спасибо», но нет строки «Я дам тебе ${runtime.pendingRewardQuantity || '?'} ед. ${runtime.pendingRewardResource || 'ресурса'}…» — жду`);
+      await setStatus(`Р¤РµСЏ: РІРёР¶Сѓ В«РЎРїР°СЃРёР±РѕВ», РЅРѕ РЅРµС‚ СЃС‚СЂРѕРєРё В«РЇ РґР°Рј С‚РµР±Рµ ${runtime.pendingRewardQuantity || '?'} РµРґ. ${runtime.pendingRewardResource || 'СЂРµСЃСѓСЂСЃР°'}вЂ¦В» вЂ” Р¶РґСѓ`);
       scheduleScan(300);
       return;
     }
 
     if (runtime.pendingReward) {
-      await setStatus(`Фея: жду награду за ${runtime.pendingRewardResource || 'ресурс'} ${runtime.pendingRewardQuantity || ''} шт.`);
+      await setStatus(`Р¤РµСЏ: Р¶РґСѓ РЅР°РіСЂР°РґСѓ Р·Р° ${runtime.pendingRewardResource || 'СЂРµСЃСѓСЂСЃ'} ${runtime.pendingRewardQuantity || ''} С€С‚.`);
       scheduleScan(300);
       return;
     }
 
-    // 8) A recent "Продолжить бой" / "начинаю сбор" click means the battle iframe may
+    // 8) A recent "РџСЂРѕРґРѕР»Р¶РёС‚СЊ Р±РѕР№" / "РЅР°С‡РёРЅР°СЋ СЃР±РѕСЂ" click means the battle iframe may
     //    still be loading. Other Haddan frames must not use that gap to click Fairy.
     if (runtime.battleExpectedUntil && Date.now() < runtime.battleExpectedUntil) {
       scheduleScan(300);
@@ -1545,7 +1464,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     // Fairy again. Without this small shared guard an idle frame can race the
     // closing frame and start a second interaction at the same time.
     if (runtime.fairyCooldownTransitionUntil && runtime.fairyCooldownTransitionUntil > now) {
-      await setStatus('Фея: таймер завершен, обновляю диалог');
+      await setStatus('Р¤РµСЏ: С‚Р°Р№РјРµСЂ Р·Р°РІРµСЂС€РµРЅ, РѕР±РЅРѕРІР»СЏСЋ РґРёР°Р»РѕРі');
       scheduleScan(Math.min(500, Math.max(120, runtime.fairyCooldownTransitionUntil - now)));
       return;
     }
@@ -1557,8 +1476,8 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     // its delayed native click could fire.
     if (runtime.fairyChoiceActiveUntil && runtime.fairyChoiceActiveUntil > now) {
       await setStatus(settings.resourceMode === 'experience'
-        ? 'Фея: выбираю ресурс с максимальным опытом'
-        : 'Фея: выбираю самый выгодный ресурс');
+        ? 'Р¤РµСЏ: РІС‹Р±РёСЂР°СЋ СЂРµСЃСѓСЂСЃ СЃ РјР°РєСЃРёРјР°Р»СЊРЅС‹Рј РѕРїС‹С‚РѕРј'
+        : 'Р¤РµСЏ: РІС‹Р±РёСЂР°СЋ СЃР°РјС‹Р№ РІС‹РіРѕРґРЅС‹Р№ СЂРµСЃСѓСЂСЃ');
       scheduleScan(250);
       return;
     }
@@ -1566,12 +1485,12 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     // 9) Outside battle/dialogue/cooldown, open Fairy again and continue the FSM.
     const fairy = findFairyTrigger();
     if (fairy) {
-      await clickAction(fairy, `fairy:${relativeHref(fairy) || elementLabel(fairy)}`, 'Иду к Фее', 450);
+      await clickAction(fairy, `fairy:${relativeHref(fairy) || elementLabel(fairy)}`, 'РРґСѓ Рє Р¤РµРµ', 450);
       return;
     }
 
     if (window.top === window) {
-      await setStatus('Бот активен: ожидаю событие');
+      await setStatus('Р‘РѕС‚ Р°РєС‚РёРІРµРЅ: РѕР¶РёРґР°СЋ СЃРѕР±С‹С‚РёРµ');
     }
     scheduleScan(900);
   }
@@ -1643,7 +1562,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       }
 
       // v0.6.31 fixes a premature fight lock introduced by the resource-only
-      // workflow. <=0.6.30 could set battleActive before the «Да...» click was
+      // workflow. <=0.6.30 could set battleActive before the В«Р”Р°...В» click was
       // actually scheduled. On upgrade, release that possibly-stale lock once.
       // If a real fight is currently open, its own frame will immediately set
       // battleActive again on the next scan.
@@ -1664,3 +1583,4 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     scheduleScan(100);
   })();
 })();
+

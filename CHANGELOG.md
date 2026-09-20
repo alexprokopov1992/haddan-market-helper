@@ -4,6 +4,7 @@
 
 - Added recovery when XP is already saved but Haddan closes the reward window before the extension observes `Спасибо.`.
 - Added a 30-second timeout for the saved-XP reward acknowledgement wait, so the Poliana cycle cannot stay locked forever.
+- Split the runtime storage contract into `content/runtime.js` and documented the no-bundler content-script architecture.
 
 ## 0.6.38
 
