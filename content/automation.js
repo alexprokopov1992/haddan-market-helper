@@ -1248,17 +1248,30 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
 
       // Recovery for the case where Haddan accepted «Спасибо.» and closed the
       // reward iframe before this frame could observe the post-ACK transition.
-      // We only release after XP capture, so an unrecorded reward is still protected.
-      if (captured && (rewardAckEchoVisible(text) || (rewardAge >= 5000 && likelyIdlePolianaAfterReward()))) {
+      // IMPORTANT: an idle top frame alone is NOT proof that «Спасибо.» was sent.
+      // In v0.6.43 that heuristic could clear pendingReward while the real reward
+      // iframe was still visibly waiting on «Спасибо.», after which another frame
+      // reopened the Fairy and the UI got stuck on «Иду к Фее».  We now release
+      // from an idle Poliana page only after an ACK was actually scheduled.
+      const activeAckStartedAt = Number(runtime.rewardAckStartedAt || 0);
+      const activeAckAge = activeAckStartedAt ? now - activeAckStartedAt : Infinity;
+      const ackConfirmedByIdle = activeAckStartedAt && activeAckAge >= 1200 && likelyIdlePolianaAfterReward();
+      if (captured && (rewardAckEchoVisible(text) || ackConfirmedByIdle)) {
         await clearRewardTransaction();
         scheduleScan(250);
         return;
       }
 
-      if (captured && rewardAge >= 30000) {
-        await clearRewardTransaction();
-        await setStatus('Фея: опыт сохранен · таймаут ожидания «Спасибо», возобновляю цикл');
-        scheduleScan(250);
+      // Never unlock a captured reward merely because time passed. If the server
+      // still shows the native «Спасибо.» page, clearing the transaction would let
+      // another frame start a new Fairy cycle before the acknowledgement happened.
+      // Keep the transaction locked and let the verified reward frame retry the
+      // native click (or the user can click it manually).
+      if (captured && rewardAge >= 30000 && !activeAckStartedAt) {
+        if (exactThanksHere) {
+          await setStatus('Фея: опыт сохранен · «Спасибо» всё ещё открыто, повторяю подтверждение');
+        }
+        scheduleScan(300);
         return;
       }
 

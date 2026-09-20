@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.44
+
+- Fixed a reward transaction race where the top Poliana frame could treat an idle page as proof that `Спасибо.` had already been acknowledged.
+- `pendingReward` is no longer cleared from an idle top frame unless a real reward ACK was first scheduled (`rewardAckStartedAt`).
+- A captured reward is no longer blindly unlocked after 30 seconds while the native `Спасибо.` page is still open; the verified reward frame keeps retrying instead.
+- Prevents the state `Иду к Фее` from appearing while an unacknowledged reward `Спасибо.` is still visible.
+
 ## 0.6.43
 
 - Fixed a Fairy reward ACK deadlock when Haddan renders the final `Спасибо.` in a fresh `qa.php` document whose frame identity differs from the resource-choice frame.
