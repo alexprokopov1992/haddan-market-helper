@@ -1,3 +1,9 @@
+## 0.6.63
+
+- Added `universalExpectedExp` to every Жнец XP sample while keeping the existing rank-specific `expectedExp` unchanged.
+- Universal candidate formula: `quantity * (resourceTier + 6 - rankIndex) / (rankIndex + 1)`, capped to `1..10` and stored as a fractional value.
+- Existing stored samples are backfilled/recalculated automatically on startup so both model outputs can be compared against actual `exp` without clearing the dataset.
+
 ## 0.6.62
 
 - Split the experimental `expectedExp` model by confirmed Жнец rank instead of forcing one universal formula.

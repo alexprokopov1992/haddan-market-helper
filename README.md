@@ -76,3 +76,12 @@ Use [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) before publishing a zip. New re
 ## Current version
 
 `0.6.48` recovers automatically from Haddan's intermittent NPC dialogue-initialization error by returning to the Poliana, clearing stale transient locks, and retrying after a short backoff.
+
+
+### Experimental universal Жнец XP model
+
+Stored XP samples also include `universalExpectedExp`, calculated in parallel as:
+
+`quantity * (resourceTier + 6 - rankIndex) / (rankIndex + 1)`
+
+The value is capped to `1..10` and kept fractional. It is experimental and does not replace the rank-specific `expectedExp` model.

@@ -136,3 +136,15 @@ test('expectedProfessionalExp leaves unconfirmed ranks unmodelled', () => {
   assert.equal(shared.expectedProfessionalExp('1044', 10, 'Гербалист'), null);
   assert.equal(shared.expectedProfessionalExp('1044', 10, 'Хранитель Полян'), null);
 });
+
+
+test('universalExpectedProfessionalExp applies the candidate tier/rank formula', () => {
+  assert.equal(shared.universalExpectedProfessionalExp('1044', 19, 'Опытный Травник'), 7.6);
+  assert.equal(shared.universalExpectedProfessionalExp('5902', 9, 'Опытный Травник'), 9);
+  assert.equal(shared.universalExpectedProfessionalExp('5903', 6, 'Опытный Гербологист'), 5);
+  assert.equal(shared.universalExpectedProfessionalExp('1044', 4, 'Гербалист'), 3);
+  assert.equal(shared.universalExpectedProfessionalExp('1044', 3, 'Косарь'), 7.5);
+  assert.equal(shared.universalExpectedProfessionalExp('1044', 13, 'Новичок'), 10);
+  assert.equal(shared.universalExpectedProfessionalExp('unknown', 10, 'Опытный Травник'), null);
+  assert.equal(shared.universalExpectedProfessionalExp('1044', 10, 'unknown'), null);
+});

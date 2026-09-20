@@ -14,6 +14,7 @@
     normalizeAutomation,
     validReaperExp,
     expectedProfessionalExp,
+    universalExpectedProfessionalExp,
     sampleWeight,
     weightedMedian
   } = window.HMH_SHARED;
@@ -119,11 +120,15 @@
     let changed = false;
     const enriched = samples.map((item) => {
       const expectedExp = expectedProfessionalExp(item?.resourceId, item?.quantity, item?.rankKey);
-      if (Object.prototype.hasOwnProperty.call(item || {}, 'expectedExp') && item.expectedExp === expectedExp) {
+      const universalExpectedExp = universalExpectedProfessionalExp(item?.resourceId, item?.quantity, item?.rankKey);
+      const hasExpectedExp = Object.prototype.hasOwnProperty.call(item || {}, 'expectedExp');
+      const hasUniversalExpectedExp = Object.prototype.hasOwnProperty.call(item || {}, 'universalExpectedExp');
+      if (hasExpectedExp && item.expectedExp === expectedExp &&
+          hasUniversalExpectedExp && item.universalExpectedExp === universalExpectedExp) {
         return item;
       }
       changed = true;
-      return { ...item, expectedExp };
+      return { ...item, expectedExp, universalExpectedExp };
     });
 
     if (!changed) return { value: source, changed: false };
@@ -435,6 +440,7 @@
       exp: safeExp,
       rankKey,
       expectedExp: expectedProfessionalExp(observation.resourceId, observation.quantity, rankKey),
+      universalExpectedExp: universalExpectedProfessionalExp(observation.resourceId, observation.quantity, rankKey),
       professionExp: Number.isFinite(Number(reaperProfile?.exp)) ? Number(reaperProfile.exp) : null,
       ts: Date.now(),
       count: 1
@@ -454,6 +460,7 @@
       existing.resourceName = sample.resourceName;
       existing.professionExp = sample.professionExp;
       existing.expectedExp = sample.expectedExp;
+      existing.universalExpectedExp = sample.universalExpectedExp;
     } else {
       samples.push(sample);
     }
@@ -998,7 +1005,7 @@
       runtime = { pauseReason: '', ...(stored[BOT_RUNTIME_KEY] || {}) };
       const restoredExp = addExpectedExpToSamples(stored[REAPER_EXP_KEY] || { samples: [] });
       reaperExp = restoredExp.value;
-      // One top-frame migration persists expectedExp for historical rows. Other
+      // One top-frame migration persists expectedExp and universalExpectedExp for historical rows. Other
       // frames receive the updated object through chrome.storage.onChanged.
       if (restoredExp.changed && window.top === window) {
         await chrome.storage.local.set({ [REAPER_EXP_KEY]: reaperExp });

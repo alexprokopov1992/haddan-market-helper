@@ -185,6 +185,32 @@
     return Math.round(capped * 10000) / 10000;
   }
 
+  // Candidate universal Жнец reward model kept in parallel with the
+  // rank-specific expectedProfessionalExp model so new observations can test it
+  // without replacing the currently better-supported per-rank estimates.
+  //
+  //   raw = quantity * (resourceTier + 6 - rankIndex) / (rankIndex + 1)
+  //
+  // rankIndex is the zero-based position in REAPER_RANKS and resourceTier is
+  // REAPER_RESOURCE_TIERS. The result is intentionally fractional and capped to
+  // the game's observed 1..10 reward range.
+  function universalExpectedProfessionalExp(resourceId, quantity, rankKey) {
+    const qty = Number(quantity);
+    if (!Number.isFinite(qty) || qty <= 0) return null;
+
+    const id = String(resourceId);
+    const tier = REAPER_RESOURCE_TIERS[id];
+    if (!Number.isInteger(tier)) return null;
+
+    const rank = canonicalReaperRank(rankKey);
+    const rankIndex = rank ? REAPER_RANKS.indexOf(rank) : -1;
+    if (rankIndex < 0) return null;
+
+    const raw = qty * (tier + 6 - rankIndex) / (rankIndex + 1);
+    const capped = Math.min(MAX_REAPER_EXP, Math.max(1, raw));
+    return Math.round(capped * 10000) / 10000;
+  }
+
   function sampleWeight(sample) {
     const count = Number(sample && sample.count);
     return Number.isFinite(count) && count > 0 ? Math.max(1, Math.floor(count)) : 1;
@@ -322,6 +348,7 @@
     normalizeAutomation,
     validReaperExp,
     expectedProfessionalExp,
+    universalExpectedProfessionalExp,
     sampleWeight,
     weightedMedian,
     exactExperienceSummary,
