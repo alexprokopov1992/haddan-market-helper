@@ -31,6 +31,12 @@
   const DOCUMENT_STARTED_AT = Date.now();
   let captchaSolveInFlight = false;
   let lastCaptchaDecode = null;
+  let captchaAttemptCount = 0;
+  let captchaRetryAt = 0;
+  let captchaAttemptFingerprint = '';
+  const CAPTCHA_DECODE_MESSAGE_TIMEOUT_MS = 18000;
+  const CAPTCHA_MAX_AUTO_ATTEMPTS = 3;
+  const CAPTCHA_RETRY_DELAYS_MS = [1500, 3500, 7000];
   const DEBUG_LOGS = false;
 
   function debugLog(...args) {
@@ -173,17 +179,41 @@
   }
 
   async function requestCaptchaDecode(imageDataUrl, token) {
-    const response = await chrome.runtime.sendMessage({
+    let timer = null;
+    const messagePromise = chrome.runtime.sendMessage({
       type: 'HMH_CAPTCHA_DECODE',
       imageDataUrl,
       token
     });
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('captcha-message-timeout')), CAPTCHA_DECODE_MESSAGE_TIMEOUT_MS);
+    });
 
-    debugLog('[Haddan Market Helper] CAPTCHA API response received by content script:', response);
+    try {
+      const response = await Promise.race([messagePromise, timeoutPromise]);
+      debugLog('[Haddan Market Helper] CAPTCHA API response received by content script:', response);
 
-    if (!response?.ok) throw new Error(String(response?.error || 'captcha-api-failed'));
-    if (!Array.isArray(response.runes) || response.runes.length === 0) throw new Error('captcha-api-empty-runes');
-    return response.runes;
+      if (!response?.ok) throw new Error(String(response?.error || 'captcha-api-failed'));
+      if (!Array.isArray(response.runes) || response.runes.length === 0) throw new Error('captcha-api-empty-runes');
+      return response.runes;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  function isRetryableCaptchaError(reason) {
+    const value = String(reason || '').toLowerCase();
+    return value === 'api-timeout' ||
+      value === 'captcha-message-timeout' ||
+      /failed to fetch|networkerror|network error|load failed|message port closed|receiving end does not exist/.test(value) ||
+      /^http-(408|425|429|500|502|503|504)$/.test(value);
+  }
+
+  function resetCaptchaRequestState() {
+    captchaSolveInFlight = false;
+    captchaAttemptCount = 0;
+    captchaRetryAt = 0;
+    captchaAttemptFingerprint = '';
   }
 
 function waitForCondition(check, timeoutMs = 2000, intervalMs = 50) {
@@ -335,7 +365,19 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       const beforeImage = await captureCaptchaImageDataUrl();
       const challengeFingerprint = hashString(beforeImage);
 
-      await setCaptchaStatus('api', 'CAPTCHA: отправляю изображение в API…', { progress: 30 });
+      if (captchaAttemptFingerprint !== challengeFingerprint) {
+        captchaAttemptFingerprint = challengeFingerprint;
+        captchaAttemptCount = 0;
+        captchaRetryAt = 0;
+      }
+      captchaAttemptCount += 1;
+      const attemptNumber = captchaAttemptCount;
+
+      await setCaptchaStatus(
+        'api',
+        `CAPTCHA: отправляю изображение в API · попытка ${attemptNumber}/${CAPTCHA_MAX_AUTO_ATTEMPTS}…`,
+        { progress: 30, detail: `Запрос к API, попытка ${attemptNumber} из ${CAPTCHA_MAX_AUTO_ATTEMPTS}` }
+      );
       const apiRunes = await requestCaptchaDecode(beforeImage, token);
       debugLog('[Haddan Market Helper] CAPTCHA API runes:', apiRunes);
 
@@ -384,7 +426,34 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
     } catch (error) {
       const reason = String(error?.message || error || 'captcha-integration-failed');
       console.warn('[Haddan Market Helper] CAPTCHA integration failed:', reason);
-      await setCaptchaStatus('error', `CAPTCHA: ошибка — ${reason}`, { progress: 0, detail: `Автоматическое решение не завершено: ${reason}. Можно ввести руны вручную.` });
+
+      const retryable = isRetryableCaptchaError(reason);
+      if (retryable && captchaAttemptCount < CAPTCHA_MAX_AUTO_ATTEMPTS && captchaVisible()) {
+        const retryDelay = CAPTCHA_RETRY_DELAYS_MS[Math.min(captchaAttemptCount - 1, CAPTCHA_RETRY_DELAYS_MS.length - 1)];
+        captchaRetryAt = Date.now() + retryDelay;
+        await setCaptchaStatus(
+          'api',
+          `CAPTCHA: API не ответил · повтор ${captchaAttemptCount + 1}/${CAPTCHA_MAX_AUTO_ATTEMPTS} через ${Math.ceil(retryDelay / 1000)}с`,
+          {
+            progress: 30,
+            detail: `Ошибка ${reason}. Повторю запрос автоматически; CAPTCHA и остальная автоматика остаются на паузе.`
+          }
+        );
+        return { ok: false, stage: 'retry', error: reason, retryAt: captchaRetryAt };
+      }
+
+      captchaRetryAt = Number.POSITIVE_INFINITY;
+      const exhausted = retryable && captchaAttemptCount >= CAPTCHA_MAX_AUTO_ATTEMPTS;
+      await setCaptchaStatus(
+        'error',
+        exhausted ? `CAPTCHA: API не ответил после ${captchaAttemptCount} попыток` : `CAPTCHA: ошибка — ${reason}`,
+        {
+          progress: 0,
+          detail: exhausted
+            ? `Последняя ошибка: ${reason}. Автоповторы остановлены для этой CAPTCHA; можно решить вручную или перезапустить цикл.`
+            : `Автоматическое решение не завершено: ${reason}. Можно ввести руны вручную.`
+        }
+      );
       return { ok: false, stage: 'error', error: reason };
     } finally {
       captchaSolveInFlight = false;
@@ -393,6 +462,7 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
 
   async function resetTransientBattleAfterCaptcha() {
     lastCaptchaDecode = null;
+    resetCaptchaRequestState();
     await saveRuntime({
       pauseReason: '',
       captchaDetectedAt: 0,
@@ -1011,8 +1081,23 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       let captchaHookResult = null;
       if (firstDetection) {
         lastCaptchaDecode = null;
+        resetCaptchaRequestState();
         requestCaptchaAlertSound();
-        if (settings.solveCaptcha) captchaHookResult = await captchaIntegrationHook();
+      }
+
+      // Do not make CAPTCHA solving a one-shot action. A transient API/network or
+      // MV3 message-channel failure used to leave this frame forever at
+      // «отправляю изображение в API» until the page/extension was restarted.
+      // The content side now has its own watchdog and retries the same unchanged
+      // challenge a few times. This also recovers after a page reload when the
+      // shared runtime still says pauseReason='captcha' and firstDetection=false.
+      const captchaAutoAttemptDue = settings.solveCaptcha &&
+        !!settings.captchaApiToken &&
+        !captchaSolveInFlight &&
+        !lastCaptchaDecode?.applied &&
+        now >= Number(captchaRetryAt || 0);
+      if (captchaAutoAttemptDue) {
+        captchaHookResult = await captchaIntegrationHook();
       }
 
       if (!settings.solveCaptcha) {
@@ -1025,6 +1110,8 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
         await setCaptchaStatus('waiting', 'CAPTCHA: проверка уже исчезла, жду обновление состояния…', { progress: 98 });
       } else if (captchaHookResult?.stage === 'apply-failed') {
         await setCaptchaStatus('error', 'CAPTCHA: не удалось применить распознанные руны', { progress: 0, detail: 'API ответ получен, но ввод на странице не подтвердился. Можно завершить CAPTCHA вручную.' });
+      } else if (captchaHookResult?.stage === 'retry') {
+        // captchaIntegrationHook published the retry countdown/status.
       } else if (captchaHookResult?.stage === 'error') {
         // captchaIntegrationHook already stored a structured error status.
       } else if (captchaHookResult?.ok) {

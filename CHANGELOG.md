@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.46
+
+- Added a content-side watchdog around the CAPTCHA decode message so a broken MV3 message channel cannot leave the UI forever at `отправляю изображение в API`.
+- Automatic CAPTCHA decoding now retries transient API/network/message-channel failures up to 3 times with backoff while the same challenge is still visible.
+- CAPTCHA solving is no longer tied only to the first detection scan; a reload with a persisted `pauseReason=captcha` can resume the decode flow without requiring a full extension restart.
+- Non-transient errors and exhausted retries stop cleanly with an explicit error instead of an indefinite in-flight state.
+
 ## 0.6.45
 
 - Fixed the reward `Спасибо.` loop caused by using a delayed stale DOM node: Haddan can refresh/replace the `qa.php` contents before the generic delayed click fires.
