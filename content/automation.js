@@ -37,6 +37,7 @@
   const CAPTCHA_DECODE_MESSAGE_TIMEOUT_MS = 18000;
   const CAPTCHA_MAX_AUTO_ATTEMPTS = 3;
   const CAPTCHA_RETRY_DELAYS_MS = [1500, 3500, 7000];
+  const REWARD_ACK_FAILSAFE_MS = 30000;
   const DEBUG_LOGS = false;
 
   function debugLog(...args) {
@@ -1248,6 +1249,23 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       return;
     }
 
+    // Failsafe requested for the post-reward acknowledgement. Once the exact XP
+    // reward has already been captured, do not let a broken/stale «Спасибо.»
+    // transition lock the whole Fairy cycle forever. After 30 seconds we keep the
+    // captured XP evidence, drop only the pending transaction/ACK locks, and let
+    // the next scan continue from whatever page Haddan is currently showing.
+    if (runtime.pendingReward) {
+      const rewardChoiceAt = Number(runtime.rewardChoiceAt || 0);
+      const capturedAt = Number(runtime.lastRewardCapturedAt || 0);
+      const capturedCurrentReward = rewardChoiceAt > 0 && capturedAt >= rewardChoiceAt;
+      if (capturedCurrentReward && now - capturedAt >= REWARD_ACK_FAILSAFE_MS) {
+        await clearRewardTransaction();
+        await setStatus('Фея: «Спасибо» не завершилось за 30 с · пропускаю этот этап');
+        scheduleScan(250);
+        return;
+      }
+    }
+
     // 3) Fairy cooldown dialogue. The first positive server timer creates a local
     //    deadline. After that deadline expires, the same old qa.php document is
     //    stale even if its server-rendered text still says e.g. 15:00.
@@ -1418,19 +1436,6 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       if (captured && activeAckStartedAt && activeAckAge >= 250 && rewardAckEchoVisible(text)) {
         await clearRewardTransaction();
         scheduleScan(250);
-        return;
-      }
-
-      // Never unlock a captured reward merely because time passed. If the server
-      // still shows the native «Спасибо.» page, clearing the transaction would let
-      // another frame start a new Fairy cycle before the acknowledgement happened.
-      // Keep the transaction locked and let the verified reward frame retry the
-      // native click (or the user can click it manually).
-      if (captured && rewardAge >= 30000 && !activeAckStartedAt) {
-        if (exactThanksHere) {
-          await setStatus('Фея: опыт сохранен · «Спасибо» всё ещё открыто, повторяю подтверждение');
-        }
-        scheduleScan(300);
         return;
       }
 

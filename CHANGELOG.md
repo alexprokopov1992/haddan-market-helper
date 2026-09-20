@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.47
+
+- Added a 30-second post-reward failsafe: after the exact Fairy XP reward has already been saved, a stalled `Спасибо.` completion no longer locks the automation indefinitely.
+- The failsafe clears only the pending reward/ACK transaction state; the captured XP evidence is preserved and the next scan continues the Fairy cycle.
+
 ## 0.6.46
 
 - Added a content-side watchdog around the CAPTCHA decode message so a broken MV3 message channel cannot leave the UI forever at `отправляю изображение в API`.
