@@ -10,6 +10,7 @@
     DEFAULT_AUTOMATION,
     MAX_REAPER_EXP,
     normalizeText,
+    reaperProgress,
     normalizeAutomation,
     validReaperExp,
     sampleWeight,
@@ -108,7 +109,7 @@
   }
 
   function profileRankKey() {
-    return normalizeText(automation.reaperRank || reaperProfile?.rank || '').toLowerCase() || 'unknown';
+    return normalizeText(reaperProfile?.rank || automation.reaperRank || '').toLowerCase() || 'unknown';
   }
 
   function samplesFor(resourceId) {
@@ -344,6 +345,38 @@
     return null;
   }
 
+  function advanceReaperSession(expGain, rewardTransactionKey) {
+    const gain = Number(expGain);
+    const currentExp = Number(reaperProfile?.exp);
+    const appliedKey = String(rewardTransactionKey || '');
+    if (!automation.running || !reaperProfile?.sessionStartedAt || !appliedKey || !Number.isFinite(gain) || gain < 0 || !Number.isFinite(currentExp)) {
+      return null;
+    }
+    if (String(reaperProfile.lastAppliedRewardKey || '') === appliedKey) return null;
+
+    const nextExp = currentExp + gain;
+    const progress = reaperProgress(nextExp, reaperProfile.rank);
+    if (!progress) return null;
+
+    const previousRank = reaperProfile.rank || '';
+    reaperProfile = {
+      ...reaperProfile,
+      rank: progress.rank,
+      exp: progress.exp,
+      nextRank: progress.nextRank,
+      nextExp: progress.nextExp,
+      remaining: progress.remaining,
+      sessionGainedExp: Number(reaperProfile.sessionGainedExp || 0) + gain,
+      sessionRewards: Number(reaperProfile.sessionRewards || 0) + 1,
+      lastRewardExp: gain,
+      lastRewardAt: Date.now(),
+      lastAppliedRewardKey: appliedKey,
+      rankChangedAt: previousRank && previousRank !== progress.rank ? Date.now() : (reaperProfile.rankChangedAt || 0),
+      updatedAt: Date.now()
+    };
+    return reaperProfile;
+  }
+
   async function captureRewardObservation(textOverride = null) {
     // Primary source is the Fairy reward qa.php page itself. The server renders
     // both the exact reward line and the native «Спасибо.» link there, so we do
@@ -370,7 +403,8 @@
     // resource was chosen. This avoids misclassifying a sample if the selector
     // is changed while the reward page is loading.
     const rankKey = normalizeText(runtime.pendingRewardRankKey || '').toLowerCase() || profileRankKey();
-    const key = `${rankKey}|${observation.resourceId}|${observation.quantity}|${observation.exp}`;
+    const transactionKey = Number(runtime.rewardChoiceAt || runtime.pendingRewardSince || DOCUMENT_STARTED_AT);
+    const key = `${transactionKey}|${rankKey}|${observation.resourceId}|${observation.quantity}|${observation.exp}`;
     if (key === lastRewardObservationKey) return true;
     lastRewardObservationKey = key;
 
@@ -404,12 +438,15 @@
       samples.push(sample);
     }
     reaperExp = { samples: samples.slice(-MAX_REAPER_EXP_RECORDS), updatedAt: Date.now(), maxExp: MAX_REAPER_EXP };
+    const advancedProfile = advanceReaperSession(safeExp, transactionKey);
     try {
       // Keep FAIRY_OFFERS intact. Clearing it here made the panel lose the exact
       // quantity that the just-saved XP sample belongs to, so the user could not
       // see 16 шт. -> 6 опыта immediately after the reward. The next Fairy offer
       // list will naturally replace it.
-      await chrome.storage.local.set({ [REAPER_EXP_KEY]: reaperExp });
+      const patch = { [REAPER_EXP_KEY]: reaperExp };
+      if (advancedProfile) patch[REAPER_PROFILE_KEY] = advancedProfile;
+      await chrome.storage.local.set(patch);
     } catch (_) {}
 
     await markRewardCaptured(observation);
@@ -680,7 +717,7 @@
       } else {
         details.push('проф. опыт: данных пока нет');
       }
-      details.push(`уровень Жнеца: ${automation.reaperRank}`);
+      details.push(`уровень Жнеца: ${reaperProfile?.rank || automation.reaperRank}`);
       details.push(formatAge(market.updatedAt));
       addVisualAnnotation(link, label, `Haddan Market Helper: ${details.join(' · ')}`, isBest);
 

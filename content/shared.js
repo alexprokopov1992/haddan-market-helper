@@ -37,6 +37,23 @@
     'Великий Магистр'
   ]);
 
+  // Official Haddan Жнец profession thresholds. `exp` is the total professional
+  // experience at which the rank becomes active. Keeping the table locally lets
+  // one bot session advance the rank without re-fetching the character profile.
+  const REAPER_RANK_THRESHOLDS = Object.freeze([
+    Object.freeze({ rank: 'Новичок', exp: 0 }),
+    Object.freeze({ rank: 'Косарь', exp: 50 }),
+    Object.freeze({ rank: 'Травник', exp: 200 }),
+    Object.freeze({ rank: 'Гербалист', exp: 1000 }),
+    Object.freeze({ rank: 'Опытный Травник', exp: 5000 }),
+    Object.freeze({ rank: 'Опытный Гербологист', exp: 18000 }),
+    Object.freeze({ rank: 'Хранитель Полян', exp: 80000 }),
+    Object.freeze({ rank: 'Мастер', exp: 140000 }),
+    Object.freeze({ rank: 'Грандмастер', exp: 205000 }),
+    Object.freeze({ rank: 'Магистр', exp: 295000 }),
+    Object.freeze({ rank: 'Великий Магистр', exp: 450000 })
+  ]);
+
   const DEFAULT_AUTOMATION = Object.freeze({
     running: false,
     collectResources: true,
@@ -74,6 +91,41 @@
       captchaApiToken: String(raw.captchaApiToken || ''),
       captureFairy: !!raw.captureFairy,
       selectedFairy: raw.selectedFairy || null
+    };
+  }
+
+
+  function reaperProgress(totalExp, rankHint = '') {
+    const exp = Number(totalExp);
+    if (!Number.isFinite(exp) || exp < 0) return null;
+
+    let index = 0;
+    for (let i = 0; i < REAPER_RANK_THRESHOLDS.length; i += 1) {
+      if (exp >= REAPER_RANK_THRESHOLDS[i].exp) index = i;
+      else break;
+    }
+
+    // The server-reported rank is authoritative when it is a known rank and the
+    // experience table cannot place it more specifically (useful if Haddan ever
+    // adjusts a boundary but keeps the same names).
+    const hinted = canonicalReaperRank(rankHint);
+    const hintedIndex = hinted ? REAPER_RANK_THRESHOLDS.findIndex((item) => item.rank === hinted) : -1;
+    if (hintedIndex >= 0) {
+      const hintedFloor = REAPER_RANK_THRESHOLDS[hintedIndex].exp;
+      const hintedCeil = REAPER_RANK_THRESHOLDS[hintedIndex + 1]?.exp ?? Infinity;
+      if (exp >= hintedFloor && exp < hintedCeil) index = hintedIndex;
+    }
+
+    const current = REAPER_RANK_THRESHOLDS[index];
+    const next = REAPER_RANK_THRESHOLDS[index + 1] || null;
+    return {
+      rank: current.rank,
+      rankExp: current.exp,
+      exp,
+      nextRank: next?.rank || '',
+      nextExp: next?.exp ?? null,
+      remaining: next ? Math.max(0, next.exp - exp) : null,
+      maxRank: !next
     };
   }
 
@@ -208,11 +260,13 @@
     STORAGE_KEYS,
     RESOURCES,
     REAPER_RANKS,
+    REAPER_RANK_THRESHOLDS,
     DEFAULT_AUTOMATION,
     MAX_REAPER_EXP,
     MAX_HISTORY_PER_RESOURCE,
     normalizeText,
     canonicalReaperRank,
+    reaperProgress,
     normalizeAutomation,
     validReaperExp,
     sampleWeight,

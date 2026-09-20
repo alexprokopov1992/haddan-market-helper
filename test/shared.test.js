@@ -94,3 +94,20 @@ test('normalizeMarketOffers filters unsafe rows and sorts by price then money le
   assert.equal(offers[0].resourceName, 'Подсолнух');
   assert.equal(offers[0].buyLimit, 12);
 });
+
+
+test('reaperProgress derives current and next Жнец rank from total profession XP', () => {
+  assert.deepEqual(shared.reaperProgress(18113, 'Опытный Гербологист'), {
+    rank: 'Опытный Гербологист',
+    rankExp: 18000,
+    exp: 18113,
+    nextRank: 'Хранитель Полян',
+    nextExp: 80000,
+    remaining: 61887,
+    maxRank: false
+  });
+
+  assert.equal(shared.reaperProgress(79999).rank, 'Опытный Гербологист');
+  assert.equal(shared.reaperProgress(80000).rank, 'Хранитель Полян');
+  assert.equal(shared.reaperProgress(450000).maxRank, true);
+});

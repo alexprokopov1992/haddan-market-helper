@@ -330,12 +330,11 @@
 .hmh-rank-row span {
   white-space: nowrap;
 }
-#hmh-reaper-rank {
+.hmh-reaper-profile {
   min-width: 0;
   flex: 1;
-  border: 1px solid #8b744c;
-  background: #fff8e8;
+  white-space: normal !important;
+  line-height: 1.25;
+  font-weight: 600;
   color: #352713;
-  padding: 3px 5px;
-  font: inherit;
 }

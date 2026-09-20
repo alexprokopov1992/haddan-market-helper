@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.55
+
+- Replaced the manual Жнец rank selector with an automatic session profile.
+- START now reads `/info/info.php` once, captures current Жнец rank and total professional XP, and calculates the next rank threshold locally.
+- During the running session every exact Fairy XP reward advances the cached total XP locally; crossing a threshold immediately switches the rank used for XP prediction, with no additional profile requests.
+- The panel shows current rank, total XP / next-rank XP, XP remaining, and XP gained in the current session.
+- If the START profile request fails, the last cached profile can be used explicitly marked as cache; if no profile exists, START is cancelled rather than silently using a guessed rank.
+- Reward-session accounting is keyed by the reward transaction so repeated scans of the same reward do not intentionally advance the session twice, while identical rewards in later cycles remain countable.
+
 ## 0.6.54
 - Fixed an `id=9000` action collision in Fairy dialogs: Haddan uses the same QA id for both reward `Спасибо.` and cooldown `Хорошо, я подойду позже.`.
 - QA actions with a text matcher now require BOTH the expected `qa.php?id` and the expected visible label; the helper no longer falls back to an arbitrary action sharing the same id.

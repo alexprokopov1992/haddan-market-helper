@@ -12,6 +12,7 @@
     MAX_HISTORY_PER_RESOURCE,
     MAX_REAPER_EXP,
     canonicalReaperRank,
+    reaperProgress,
     normalizeAutomation,
     normalizeText,
     validReaperExp,
@@ -69,10 +70,10 @@
         <div class="hmh-resource-options" id="hmh-resource-options">
           <label class="hmh-radio"><input type="radio" name="hmh-resource-mode" value="profit"> Максимальная выгода</label>
           <label class="hmh-radio"><input type="radio" name="hmh-resource-mode" value="experience"> Максимальный опыт</label>
-          <label class="hmh-rank-row">
-            <span>Уровень Жнеца:</span>
-            <select id="hmh-reaper-rank">${REAPER_RANKS.map((rank) => `<option value="${rank}">${rank}</option>`).join('')}</select>
-          </label>
+          <div class="hmh-rank-row">
+            <span>Жнец:</span>
+            <span id="hmh-reaper-profile" class="hmh-reaper-profile">определится при START</span>
+          </div>
         </div>
         <div class="hmh-captcha-settings">
           <label class="hmh-check hmh-main-check"><input type="checkbox" id="hmh-solve-captcha"> Решать CAPTCHA</label>
@@ -115,7 +116,7 @@
   const collectResourcesEl = $('#hmh-collect-resources');
   const resourceModeEls = [...root.querySelectorAll('input[name="hmh-resource-mode"]')];
   const resourceOptionsEl = $('#hmh-resource-options');
-  const reaperRankEl = $('#hmh-reaper-rank');
+  const reaperProfileEl = $('#hmh-reaper-profile');
   const solveCaptchaEl = $('#hmh-solve-captcha');
   const captchaApiTokenEl = $('#hmh-captcha-api-token');
   const captchaProgressEl = $('#hmh-captcha-progress');
@@ -196,8 +197,27 @@
     collectResourcesEl.checked = !!automation.collectResources;
     for (const radio of resourceModeEls) radio.checked = radio.value === automation.resourceMode;
     for (const radio of resourceModeEls) radio.disabled = !automation.collectResources;
-    reaperRankEl.value = automation.reaperRank;
-    reaperRankEl.disabled = false;
+    const currentProfile = reaperProfile && Number.isFinite(Number(reaperProfile.exp))
+      ? reaperProfile
+      : null;
+    if (currentProfile) {
+      const progress = reaperProgress(currentProfile.exp, currentProfile.rank);
+      const sessionGain = Number(currentProfile.sessionGainedExp || 0);
+      const suffix = progress?.nextExp != null
+        ? `${formatNumber(progress.exp, 0)} / ${formatNumber(progress.nextExp, 0)} · до «${progress.nextRank}» ${formatNumber(progress.remaining, 0)}`
+        : `${formatNumber(progress?.exp ?? currentProfile.exp, 0)} · максимальный ранг`;
+      const sourceMark = currentProfile.sessionStartedAt
+        ? (currentProfile.sessionSource === 'cache' ? ' · кеш' : '')
+        : '';
+      const gainMark = currentProfile.sessionStartedAt && sessionGain > 0 ? ` · +${formatNumber(sessionGain, 0)} за сеанс` : '';
+      reaperProfileEl.textContent = `${progress?.rank || currentProfile.rank} · ${suffix}${gainMark}${sourceMark}`;
+      reaperProfileEl.title = currentProfile.sessionStartedAt
+        ? `Снимок при START: ${formatNumber(currentProfile.sessionStartExp, 0)} опыта. Во время сеанса опыт и ранг считаются локально, без дополнительных запросов.`
+        : 'Последние известные данные профиля. При START профиль будет перечитан.';
+    } else {
+      reaperProfileEl.textContent = 'определится при START';
+      reaperProfileEl.title = 'При START расширение один раз прочитает профиль персонажа.';
+    }
     solveCaptchaEl.checked = !!automation.solveCaptcha;
     captchaApiTokenEl.value = automation.captchaApiToken || '';
     captchaApiTokenEl.disabled = !automation.solveCaptcha;
@@ -230,14 +250,14 @@
       if (!automation.collectResources) {
         autoHintEl.textContent = 'Сбор ресурсов выключен. Плагин ничего не нажимает на Поляне.';
       } else if (automation.resourceMode === 'experience') {
-        autoHintEl.textContent = `Бот активен. Выбор: максимальный опыт для уровня «${automation.reaperRank}»; при равном опыте — максимальная выгода.`;
+        autoHintEl.textContent = `Бот активен. Выбор: максимальный опыт для текущего ранга «${reaperProfile?.rank || automation.reaperRank}»; опыт и переход ранга считаются локально.`;
       } else {
         autoHintEl.textContent = 'Бот активен. Выбор: максимальная рыночная выгода. Бой проводит штатный автобой Haddan.';
       }
     } else if (!automation.collectResources) {
       autoHintEl.textContent = 'Сбор ресурсов выключен. START недоступен, автоматические переходы и клики отключены.';
     } else if (automation.resourceMode === 'experience') {
-      autoHintEl.textContent = `Максимальный опыт считается по локально накопленной статистике для уровня «${automation.reaperRank}». При равенстве выбирается более выгодный ресурс.`;
+      autoHintEl.textContent = 'При START расширение один раз читает профиль Жнеца; дальше опыт и ранг считаются локально по полученным наградам.';
     } else {
       autoHintEl.textContent = 'Цены не обновляются автоматически: Фея использует последний рыночный кеш. Бой оставлен штатному автобою Haddan.';
     }
@@ -317,8 +337,6 @@
         if (radio.checked) saveAutomation({ resourceMode: radio.value });
       });
     }
-    reaperRankEl.addEventListener('change', () => saveAutomation({ reaperRank: reaperRankEl.value }));
-
     solveCaptchaEl.addEventListener('change', () => saveAutomation({ solveCaptcha: solveCaptchaEl.checked }));
     captchaApiTokenEl.addEventListener('change', () => saveAutomation({ captchaApiToken: captchaApiTokenEl.value.trim() }));
 
@@ -331,7 +349,32 @@
     });
 
     botStartEl.addEventListener('click', async () => {
-      await saveAutomation({ running: true, captureFairy: false });
+      botStartEl.disabled = true;
+      await chrome.storage.local.set({
+        [BOT_STATUS_KEY]: { text: 'Жнец: читаю профиль перед START…', ts: Date.now() }
+      });
+
+      const freshProfile = await refreshReaperProfile({ startSession: true });
+      let sessionProfile = freshProfile;
+      if (!sessionProfile && reaperProfile && Number.isFinite(Number(reaperProfile.exp))) {
+        sessionProfile = beginReaperSession(reaperProfile, 'cache');
+        reaperProfile = sessionProfile;
+        await chrome.storage.local.set({ [REAPER_PROFILE_KEY]: sessionProfile });
+      }
+
+      if (!sessionProfile) {
+        await chrome.storage.local.set({
+          [BOT_STATUS_KEY]: { text: 'START отменён: не удалось определить опыт Жнеца', ts: Date.now() }
+        });
+        renderAutomationUi();
+        return;
+      }
+
+      await saveAutomation({
+        running: true,
+        captureFairy: false,
+        reaperRank: sessionProfile.rank
+      });
     });
 
     botStopEl.addEventListener('click', async () => {
@@ -666,7 +709,7 @@
   }
 
   function profileRankKey() {
-    return normalizeText(automation.reaperRank || reaperProfile?.rank || '').toLowerCase() || 'unknown';
+    return normalizeText(reaperProfile?.rank || automation.reaperRank || '').toLowerCase() || 'unknown';
   }
 
   function exactExperienceSummary(samples, quantity) {
@@ -748,25 +791,62 @@
     const src = normalizeText(text);
     const match = src.match(/Жнец\s*:\s*([^()]{2,60}?)\s*\(\s*Опыт\s*:\s*([\d\s]+)\s*\)/i);
     if (!match) return null;
-    const rank = normalizeText(match[1]);
+    const serverRank = canonicalReaperRank(normalizeText(match[1]));
     const exp = Number(String(match[2]).replace(/\s+/g, ''));
-    if (!rank || !Number.isFinite(exp)) return null;
-    return { rank, exp, updatedAt: Date.now() };
+    if (!serverRank || !Number.isFinite(exp)) return null;
+    const progress = reaperProgress(exp, serverRank);
+    if (!progress) return null;
+    return {
+      rank: progress.rank,
+      exp: progress.exp,
+      nextRank: progress.nextRank,
+      nextExp: progress.nextExp,
+      remaining: progress.remaining,
+      updatedAt: Date.now()
+    };
   }
 
-  async function refreshReaperProfile() {
+  function beginReaperSession(profile, source = 'profile') {
+    if (!profile || !Number.isFinite(Number(profile.exp))) return null;
+    const progress = reaperProgress(profile.exp, profile.rank);
+    if (!progress) return null;
+    const now = Date.now();
+    return {
+      ...profile,
+      rank: progress.rank,
+      exp: progress.exp,
+      nextRank: progress.nextRank,
+      nextExp: progress.nextExp,
+      remaining: progress.remaining,
+      updatedAt: now,
+      sessionStartedAt: now,
+      sessionStartExp: progress.exp,
+      sessionGainedExp: 0,
+      sessionRewards: 0,
+      sessionSource: source,
+      lastAppliedRewardKey: '',
+      rankChangedAt: 0
+    };
+  }
+
+  async function refreshReaperProfile({ startSession = false } = {}) {
     try {
       const { response, text: html } = await fetchTextWithTimeout(new URL('/info/info.php', location.origin), {
         credentials: 'include', cache: 'no-store'
       }, 12000);
-      if (!response.ok) return;
+      if (!response.ok) return null;
       const doc = new DOMParser().parseFromString(html, 'text/html');
-      const profile = parseReaperProfile(doc.body?.innerText || doc.body?.textContent || '');
-      if (!profile) return;
+      let profile = parseReaperProfile(doc.body?.innerText || doc.body?.textContent || '');
+      if (!profile) return null;
+      if (startSession) profile = beginReaperSession(profile, 'profile');
       reaperProfile = profile;
       await chrome.storage.local.set({ [REAPER_PROFILE_KEY]: profile });
       render();
-    } catch (_) {}
+      renderAutomationUi();
+      return profile;
+    } catch (_) {
+      return null;
+    }
   }
 
   function formatLimit(value) {
@@ -861,7 +941,7 @@
         </thead>
         <tbody>${rows.join('')}</tbody>
       </table>
-      <div class="hmh-note">Проф. опыт показывается для текущих вариантов Феи и выбранного уровня Жнеца: <b>${escapeHtml(automation.reaperRank)}</b>. <b>≈</b> — оценка по уже полученным наградам; <b>?</b> — данных ещё нет.</div>
+      <div class="hmh-note">Проф. опыт показывается для текущего автоматически определённого ранга Жнеца: <b>${escapeHtml(reaperProfile?.rank || automation.reaperRank)}</b>. При START профиль читается один раз, затем опыт и переход ранга считаются локально. <b>≈</b> — оценка по уже полученным наградам; <b>?</b> — данных ещё нет.</div>
       <div class="hmh-note">* «нет» в колонке лимита пока трактуется как отсутствие числового лимита. Это отдельно проверим на поведении магазина.</div>
     `;
 
@@ -893,7 +973,7 @@
       console.warn('[Haddan Market Helper] cache restore failed', e);
     }
     render();
-    refreshReaperProfile();
+    renderAutomationUi();
   }
 
   restore();
