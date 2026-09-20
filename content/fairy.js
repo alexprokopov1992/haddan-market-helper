@@ -13,7 +13,7 @@
     reaperProgress,
     normalizeAutomation,
     validReaperExp,
-    expectedProfessionalExp,
+    expectedProfessionalExpDetails,
     universalExpectedProfessionalExpDetails,
     sampleWeight,
     weightedMedian
@@ -119,18 +119,28 @@
     const samples = Array.isArray(source.samples) ? source.samples : [];
     let changed = false;
     const enriched = samples.map((item) => {
-      const expectedExp = expectedProfessionalExp(item?.resourceId, item?.quantity, item?.rankKey);
+      const expected = expectedProfessionalExpDetails(item?.resourceId, item?.quantity, item?.rankKey);
+      const expectedExp = expected?.value ?? null;
+      const expectedExpMin = expected?.min ?? null;
+      const expectedExpMax = expected?.max ?? null;
+      const expectedChanceUp = expected?.chanceUp ?? null;
       const universal = universalExpectedProfessionalExpDetails(item?.resourceId, item?.quantity, item?.rankKey);
       const universalExpectedExp = universal?.value ?? null;
       const universalExpectedExpMin = universal?.min ?? null;
       const universalExpectedExpMax = universal?.max ?? null;
       const chanseUp = universal?.chanceUp ?? null;
       const hasExpectedExp = Object.prototype.hasOwnProperty.call(item || {}, 'expectedExp');
+      const hasExpectedExpMin = Object.prototype.hasOwnProperty.call(item || {}, 'expectedExpMin');
+      const hasExpectedExpMax = Object.prototype.hasOwnProperty.call(item || {}, 'expectedExpMax');
+      const hasExpectedChanceUp = Object.prototype.hasOwnProperty.call(item || {}, 'expectedChanceUp');
       const hasUniversalExpectedExp = Object.prototype.hasOwnProperty.call(item || {}, 'universalExpectedExp');
       const hasUniversalExpectedExpMin = Object.prototype.hasOwnProperty.call(item || {}, 'universalExpectedExpMin');
       const hasUniversalExpectedExpMax = Object.prototype.hasOwnProperty.call(item || {}, 'universalExpectedExpMax');
       const hasChanseUp = Object.prototype.hasOwnProperty.call(item || {}, 'chanseUp');
       if (hasExpectedExp && item.expectedExp === expectedExp &&
+          hasExpectedExpMin && item.expectedExpMin === expectedExpMin &&
+          hasExpectedExpMax && item.expectedExpMax === expectedExpMax &&
+          hasExpectedChanceUp && item.expectedChanceUp === expectedChanceUp &&
           hasUniversalExpectedExp && item.universalExpectedExp === universalExpectedExp &&
           hasUniversalExpectedExpMin && item.universalExpectedExpMin === universalExpectedExpMin &&
           hasUniversalExpectedExpMax && item.universalExpectedExpMax === universalExpectedExpMax &&
@@ -141,6 +151,9 @@
       return {
         ...item,
         expectedExp,
+        expectedExpMin,
+        expectedExpMax,
+        expectedChanceUp,
         universalExpectedExp,
         universalExpectedExpMin,
         universalExpectedExpMax,
@@ -450,6 +463,7 @@
 
     const safeExp = validReaperExp(observation.exp);
     if (safeExp == null) return false;
+    const expected = expectedProfessionalExpDetails(observation.resourceId, observation.quantity, rankKey);
     const universal = universalExpectedProfessionalExpDetails(observation.resourceId, observation.quantity, rankKey);
     const sample = {
       resourceId: observation.resourceId,
@@ -457,7 +471,10 @@
       quantity: Number(observation.quantity),
       exp: safeExp,
       rankKey,
-      expectedExp: expectedProfessionalExp(observation.resourceId, observation.quantity, rankKey),
+      expectedExp: expected?.value ?? null,
+      expectedExpMin: expected?.min ?? null,
+      expectedExpMax: expected?.max ?? null,
+      expectedChanceUp: expected?.chanceUp ?? null,
       universalExpectedExp: universal?.value ?? null,
       universalExpectedExpMin: universal?.min ?? null,
       universalExpectedExpMax: universal?.max ?? null,
@@ -481,6 +498,9 @@
       existing.resourceName = sample.resourceName;
       existing.professionExp = sample.professionExp;
       existing.expectedExp = sample.expectedExp;
+      existing.expectedExpMin = sample.expectedExpMin;
+      existing.expectedExpMax = sample.expectedExpMax;
+      existing.expectedChanceUp = sample.expectedChanceUp;
       existing.universalExpectedExp = sample.universalExpectedExp;
       existing.universalExpectedExpMin = sample.universalExpectedExpMin;
       existing.universalExpectedExpMax = sample.universalExpectedExpMax;
@@ -1029,7 +1049,7 @@
       runtime = { pauseReason: '', ...(stored[BOT_RUNTIME_KEY] || {}) };
       const restoredExp = addExpectedExpToSamples(stored[REAPER_EXP_KEY] || { samples: [] });
       reaperExp = restoredExp.value;
-      // One top-frame migration persists expectedExp and universal model details for historical rows. Other
+      // One top-frame migration persists both universal model details for historical rows. Other
       // frames receive the updated object through chrome.storage.onChanged.
       if (restoredExp.changed && window.top === window) {
         await chrome.storage.local.set({ [REAPER_EXP_KEY]: reaperExp });

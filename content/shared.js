@@ -147,53 +147,46 @@
     return Number.isFinite(exp) && exp >= 0 && exp <= MAX_REAPER_EXP ? exp : null;
   }
 
-  // Experimental Жнец reward XP model. Keep the formulas rank-specific until
-  // more data proves a single universal rule. Only the two ranks with enough
-  // collected observations are modelled; all other ranks intentionally return
-  // null so historical samples do not get a misleading expected value.
+  // Candidate universal Жнец reward model A (resource index based).
   //
-  // Опытный Травник: uses the raw RESOURCES order (0..6).
-  //   raw = quantity * (resourceIndex + 2) / 5
+  //   raw = quantity * (resourceIndex + 6 - rankIndex) / (rankIndex + 1)
   //
-  // Опытный Гербологист: uses the progression tier table where Мандрагора and
-  // Зеленая Массивка share tier 3.
-  //   raw = quantity * (resourceTier + 1) / 6
-  //
-  // Keep the fractional value: comparing it with the actual integer reward is
-  // useful for reconstructing the server-side random/rounding behaviour.
-  function expectedProfessionalExp(resourceId, quantity, rankKey) {
+  // resourceIndex is the zero-based position in RESOURCES. This model is kept
+  // in parallel with the tier-based universal model so every profession rank
+  // can be compared against both hypotheses using the same observations.
+  function expectedProfessionalExpDetails(resourceId, quantity, rankKey) {
     const qty = Number(quantity);
     if (!Number.isFinite(qty) || qty <= 0) return null;
 
     const id = String(resourceId);
+    const resourceIndex = RESOURCES.findIndex((resource) => resource.id === id);
+    if (resourceIndex < 0) return null;
+
     const rank = canonicalReaperRank(rankKey);
-    let raw = null;
+    const rankIndex = rank ? REAPER_RANKS.indexOf(rank) : -1;
+    if (rankIndex < 0) return null;
 
-    if (rank === 'Опытный Травник') {
-      const resourceIndex = RESOURCES.findIndex((resource) => resource.id === id);
-      if (resourceIndex < 0) return null;
-      raw = qty * (resourceIndex + 2) / 5;
-    } else if (rank === 'Опытный Гербологист') {
-      const tier = REAPER_RESOURCE_TIERS[id];
-      if (!Number.isInteger(tier)) return null;
-      raw = qty * (tier + 1) / 6;
-    } else {
-      return null;
-    }
-
+    const raw = qty * (resourceIndex + 6 - rankIndex) / (rankIndex + 1);
     const capped = Math.min(MAX_REAPER_EXP, Math.max(1, raw));
-    return Math.round(capped * 10000) / 10000;
+    const value = Math.round(capped * 10000) / 10000;
+    const min = Math.floor(value);
+    const max = Math.ceil(value);
+    const chanceUp = min === max ? 0 : Math.round((value - min) * 10000) / 10000;
+    return { value, min, max, chanceUp };
   }
 
-  // Candidate universal Жнец reward model kept in parallel with the
-  // rank-specific expectedProfessionalExp model so new observations can test it
-  // without replacing the currently better-supported per-rank estimates.
+  function expectedProfessionalExp(resourceId, quantity, rankKey) {
+    return expectedProfessionalExpDetails(resourceId, quantity, rankKey)?.value ?? null;
+  }
+
+  // Candidate universal Жнец reward model B (resource progression tier based).
   //
   //   raw = quantity * (resourceTier + 6 - rankIndex) / (rankIndex + 1)
   //
   // rankIndex is the zero-based position in REAPER_RANKS and resourceTier is
-  // REAPER_RESOURCE_TIERS. The result is intentionally fractional and capped to
-  // the game's observed 1..10 reward range.
+  // REAPER_RESOURCE_TIERS. Мандрагора and Зеленая Массивка intentionally share
+  // tier 3 here. The result is fractional and capped to the currently observed
+  // 1..10 reward range.
   function universalExpectedProfessionalExpDetails(resourceId, quantity, rankKey) {
     const qty = Number(quantity);
     if (!Number.isFinite(qty) || qty <= 0) return null;
@@ -356,6 +349,7 @@
     normalizeAutomation,
     validReaperExp,
     expectedProfessionalExp,
+    expectedProfessionalExpDetails,
     universalExpectedProfessionalExp,
     universalExpectedProfessionalExpDetails,
     sampleWeight,

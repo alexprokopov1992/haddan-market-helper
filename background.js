@@ -1,4 +1,64 @@
+importScripts('content/shared.js');
+
 'use strict';
+
+const REAPER_MODEL_RECALC_VERSION = '0.6.66-dual-universal-20260921';
+
+function reaperModelFields(sample) {
+  const shared = globalThis.HMH_SHARED;
+  if (!shared) return null;
+
+  const expected = shared.expectedProfessionalExpDetails(sample?.resourceId, sample?.quantity, sample?.rankKey);
+  const universal = shared.universalExpectedProfessionalExpDetails(sample?.resourceId, sample?.quantity, sample?.rankKey);
+
+  return {
+    expectedExp: expected?.value ?? null,
+    expectedExpMin: expected?.min ?? null,
+    expectedExpMax: expected?.max ?? null,
+    expectedChanceUp: expected?.chanceUp ?? null,
+    universalExpectedExp: universal?.value ?? null,
+    universalExpectedExpMin: universal?.min ?? null,
+    universalExpectedExpMax: universal?.max ?? null,
+    chanseUp: universal?.chanceUp ?? null
+  };
+}
+
+async function recalculateStoredReaperModels() {
+  const shared = globalThis.HMH_SHARED;
+  if (!shared?.STORAGE_KEYS?.reaperExp) return false;
+
+  const key = shared.STORAGE_KEYS.reaperExp;
+  const stored = await chrome.storage.local.get(key);
+  const current = stored[key];
+  if (!current || !Array.isArray(current.samples)) return false;
+  if (current.modelRecalcVersion === REAPER_MODEL_RECALC_VERSION) return false;
+
+  const samples = current.samples.map((sample) => {
+    const fields = reaperModelFields(sample);
+    return fields ? { ...sample, ...fields } : sample;
+  });
+
+  await chrome.storage.local.set({
+    [key]: {
+      ...current,
+      samples,
+      modelRecalcVersion: REAPER_MODEL_RECALC_VERSION
+    }
+  });
+  return true;
+}
+
+// Run once for this model revision as soon as the MV3 worker starts. This makes
+// historical samples consistent even if the user never opens a Fairy page.
+recalculateStoredReaperModels().catch((error) => {
+  console.warn('[Haddan Market Helper] Reaper model backfill failed', error);
+});
+
+chrome.runtime.onInstalled.addListener(() => {
+  recalculateStoredReaperModels().catch((error) => {
+    console.warn('[Haddan Market Helper] Reaper model install backfill failed', error);
+  });
+});
 
 let creatingOffscreen = null;
 const captchaAlertByTab = new Map();

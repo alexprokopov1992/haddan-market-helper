@@ -112,31 +112,16 @@ test('reaperProgress derives current and next Жнец rank from total professio
   assert.equal(shared.reaperProgress(450000).maxRank, true);
 });
 
-test('expectedProfessionalExp uses the raw resource index for Опытный Травник', () => {
+test('expectedProfessionalExp applies the candidate index/rank formula to every rank', () => {
   assert.equal(shared.expectedProfessionalExp('1044', 19, 'Опытный Травник'), 7.6);
-  assert.equal(shared.expectedProfessionalExp('5901', 9, 'Опытный Травник'), 7.2);
-  assert.equal(shared.expectedProfessionalExp('1045', 8, 'Опытный Травник'), 8);
   assert.equal(shared.expectedProfessionalExp('5902', 9, 'Опытный Травник'), 10);
-  assert.equal(shared.expectedProfessionalExp('5903', 6, 'Опытный Травник'), 8.4);
+  assert.equal(shared.expectedProfessionalExp('5903', 6, 'Опытный Гербологист'), 6);
+  assert.equal(shared.expectedProfessionalExp('1044', 4, 'Гербалист'), 3);
+  assert.equal(shared.expectedProfessionalExp('1044', 3, 'Косарь'), 7.5);
+  assert.equal(shared.expectedProfessionalExp('1044', 13, 'Новичок'), 10);
+  assert.equal(shared.expectedProfessionalExp('unknown', 10, 'Опытный Травник'), null);
+  assert.equal(shared.expectedProfessionalExp('1044', 10, 'unknown'), null);
 });
-
-test('expectedProfessionalExp uses progression tiers for Опытный Гербологист', () => {
-  assert.equal(shared.expectedProfessionalExp('1044', 39, 'Опытный Гербологист'), 6.5);
-  assert.equal(shared.expectedProfessionalExp('5901', 11, 'опытный гербологист'), 5.5);
-  assert.equal(shared.expectedProfessionalExp('1045', 16, 'Опытный Гербологист'), 10);
-  assert.equal(shared.expectedProfessionalExp('5902', 9, 'Опытный Гербологист'), 6);
-  assert.equal(shared.expectedProfessionalExp('5903', 6, 'Опытный Гербологист'), 5);
-  assert.equal(shared.expectedProfessionalExp('5904', 5, 'Опытный Гербологист'), 5);
-});
-
-test('expectedProfessionalExp leaves unconfirmed ranks unmodelled', () => {
-  assert.equal(shared.expectedProfessionalExp('1044', 13, 'Новичок'), null);
-  assert.equal(shared.expectedProfessionalExp('1044', 3, 'Косарь'), null);
-  assert.equal(shared.expectedProfessionalExp('1044', 4, 'Травник'), null);
-  assert.equal(shared.expectedProfessionalExp('1044', 10, 'Гербалист'), null);
-  assert.equal(shared.expectedProfessionalExp('1044', 10, 'Хранитель Полян'), null);
-});
-
 
 test('universalExpectedProfessionalExp applies the candidate tier/rank formula', () => {
   assert.equal(shared.universalExpectedProfessionalExp('1044', 19, 'Опытный Травник'), 7.6);
@@ -168,4 +153,23 @@ test('universalExpectedProfessionalExpDetails exposes stochastic-rounding bounds
     { value: 10, min: 10, max: 10, chanceUp: 0 }
   );
   assert.equal(shared.universalExpectedProfessionalExpDetails('unknown', 10, 'Опытный Травник'), null);
+});
+
+test('expectedProfessionalExpDetails exposes stochastic-rounding bounds and chance for index model', () => {
+  assert.deepEqual(
+    shared.expectedProfessionalExpDetails('1044', 19, 'Опытный Травник'),
+    { value: 7.6, min: 7, max: 8, chanceUp: 0.6 }
+  );
+  assert.deepEqual(
+    shared.expectedProfessionalExpDetails('5901', 11, 'Опытный Гербологист'),
+    { value: 5.5, min: 5, max: 6, chanceUp: 0.5 }
+  );
+  assert.deepEqual(
+    shared.expectedProfessionalExpDetails('1045', 12, 'Опытный Гербологист'),
+    { value: 8, min: 8, max: 8, chanceUp: 0 }
+  );
+  assert.deepEqual(
+    shared.expectedProfessionalExpDetails('1044', 4, 'Гербалист'),
+    { value: 3, min: 3, max: 3, chanceUp: 0 }
+  );
 });

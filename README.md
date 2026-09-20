@@ -84,7 +84,12 @@ Stored XP samples also include `universalExpectedExp`, calculated in parallel as
 
 `quantity * (resourceTier + 6 - rankIndex) / (rankIndex + 1)`
 
-The value is capped to `1..10` and kept fractional. It is experimental and does not replace the rank-specific `expectedExp` model.
+The value is capped to `1..10` and kept fractional. Version 0.6.66 keeps two universal hypotheses in parallel:
+
+- `expectedExp`: resource-index model `Q * (resourceIndex + 6 - rankIndex) / (rankIndex + 1)`
+- `universalExpectedExp`: resource-tier model `Q * (resourceTier + 6 - rankIndex) / (rankIndex + 1)`
+
+Both are evaluated for every known Жнец rank so accumulated samples can decide which resource progression model better matches the server.
 
 Each stored sample also includes stochastic-rounding diagnostics derived from the universal value:
 

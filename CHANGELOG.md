@@ -1,3 +1,18 @@
+## 0.6.66
+- Added a background one-time backfill for all historical Reaper XP samples. Both universal models, Min/Max and chance-up fields are recomputed even when a Fairy page is never opened; raw observations remain unchanged.
+
+
+- Reworked Жнец XP experiments into two universal models evaluated on every known profession rank.
+- `expectedExp` is now the resource-index hypothesis: `Q * (resourceIndex + 6 - rankIndex) / (rankIndex + 1)`.
+- `universalExpectedExp` remains the resource-tier hypothesis: `Q * (resourceTier + 6 - rankIndex) / (rankIndex + 1)`.
+- Both models keep Min/Max and stochastic-rounding chance fields, and historical samples are recalculated automatically.
+
+## 0.6.65
+
+- Added `expectedExpMin`, `expectedExpMax`, and `expectedChanceUp` alongside the rank-specific `expectedExp` model.
+- Historical Жнец samples are backfilled automatically, so existing datasets can compare stochastic-rounding predictions for both the rank-specific and universal models.
+- `expectedChanceUp` is the fractional part of `expectedExp`; exact integers store `0`.
+
 ## 0.6.64
 
 - Added stochastic-rounding diagnostics to every Жнец XP sample: `universalExpectedExpMin`, `universalExpectedExpMax`, and `chanseUp`.
