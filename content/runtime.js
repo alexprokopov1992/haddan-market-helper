@@ -31,6 +31,7 @@
     rewardAckStartedAt: 0,
     rewardAckFrameKey: '',
     rewardAckDocumentStartedAt: 0,
+    rewardThanksSeenAt: 0,
     battleExpectedUntil: 0,
     battleStartLogicVersion: 2,
     battleStartRequestedAt: 0,
@@ -70,6 +71,7 @@
       rewardAckStartedAt: 0,
       rewardAckFrameKey: '',
       rewardAckDocumentStartedAt: 0,
+      rewardThanksSeenAt: 0,
       ...extra
     };
   }

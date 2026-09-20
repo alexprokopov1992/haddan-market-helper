@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.49
+
+- Added a 30-second fallback for a current Fairy reward dialog that shows the exact native `Спасибо.` link but never exposes the learnable resource + quantity + XP line.
+- After the timeout the extension clicks `Спасибо.` and continues the cycle instead of waiting forever.
+- That one reward is intentionally not added to the Жнец XP learning table because its exact XP was never observed.
+- The timeout starts when the valid `Спасибо.` link is first seen in the current reward document, not merely when the resource was selected.
+
 ## 0.6.48
 
 - Added recovery for Haddan's exact `Ошибка инициализации диалога! ... попытайтесь начать диалог ещё раз` page.

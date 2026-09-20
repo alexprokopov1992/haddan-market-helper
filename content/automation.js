@@ -38,6 +38,7 @@
   const CAPTCHA_MAX_AUTO_ATTEMPTS = 3;
   const CAPTCHA_RETRY_DELAYS_MS = [1500, 3500, 7000];
   const REWARD_ACK_FAILSAFE_MS = 30000;
+  const REWARD_MISSING_LINE_THANKS_FAILSAFE_MS = 30000;
   const DEBUG_LOGS = false;
 
   function debugLog(...args) {
@@ -1718,13 +1719,40 @@ async function applyCaptchaResultToCurrentPage(siteRunes) {
       return;
     }
 
-    // A «Спасибо.» without a previously captured matching reward sentence is
-    // still treated as unsafe. Never auto-click it.
-    // Never auto-click it. This is intentionally conservative: START/STOP or a
-    // manual click can recover, but the plugin will not sacrifice the XP record.
+    // If the exact native «Спасибо.» belongs to the current reward document but
+    // the XP sentence never appears, do not deadlock forever. Give Haddan 30
+    // seconds to render the learnable resource+quantity+XP line; after that,
+    // acknowledge the current reward anyway. This intentionally sacrifices only
+    // the XP sample for this one cycle, not the whole automation flow.
     if (runtime.pendingReward && exactThanks &&
         (rewardDoc.sameChoiceFrame || rewardDoc.freshQaAfterChoice)) {
-      await setStatus(`Фея: вижу «Спасибо», но нет строки «Я дам тебе ${runtime.pendingRewardQuantity || '?'} ед. ${runtime.pendingRewardResource || 'ресурса'}…» — жду`);
+      let thanksSeenAt = Number(runtime.rewardThanksSeenAt || 0);
+      if (!thanksSeenAt) {
+        thanksSeenAt = now;
+        await saveRuntime({ rewardThanksSeenAt: thanksSeenAt });
+      }
+
+      const thanksAge = now - thanksSeenAt;
+      if (thanksAge >= REWARD_MISSING_LINE_THANKS_FAILSAFE_MS) {
+        if (!runtime.rewardAckStartedAt) {
+          const clicked = await clickRewardThanks(
+            `Фея: нет строки награды ${Math.round(REWARD_MISSING_LINE_THANKS_FAILSAFE_MS / 1000)} с · подтверждаю «Спасибо» без записи опыта`
+          );
+          if (!clicked) {
+            await setStatus('Фея: таймаут строки награды · жду возможность подтвердить «Спасибо»');
+            scheduleScan(250);
+          } else {
+            scheduleScan(350);
+          }
+        } else {
+          await setStatus('Фея: таймаут строки награды · закрываю награду без записи опыта');
+          scheduleScan(350);
+        }
+        return;
+      }
+
+      const remainingSec = Math.max(1, Math.ceil((REWARD_MISSING_LINE_THANKS_FAILSAFE_MS - thanksAge) / 1000));
+      await setStatus(`Фея: нет строки награды для ${runtime.pendingRewardResource || 'ресурса'} ${runtime.pendingRewardQuantity || ''} шт. · «Спасибо» через ${remainingSec} с`);
       scheduleScan(300);
       return;
     }

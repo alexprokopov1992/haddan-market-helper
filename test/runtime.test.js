@@ -21,6 +21,7 @@ test('normalizeRuntime keeps known values and fills missing defaults', () => {
   assert.equal(normalized.rewardAckLogicVersion, 3);
   assert.equal(normalized.rewardAckScheduledAt, 0);
   assert.equal(normalized.rewardAckFrameKey, '');
+  assert.equal(normalized.rewardThanksSeenAt, 0);
   assert.equal(Object.hasOwn(normalized, 'unknownField'), false);
 });
 
@@ -34,6 +35,7 @@ test('clearRewardRuntimePatch clears transaction locks without erasing captured 
   assert.equal(patch.rewardAckStartedAt, 0);
   assert.equal(patch.rewardAckFrameKey, '');
   assert.equal(patch.rewardAckDocumentStartedAt, 0);
+  assert.equal(patch.rewardThanksSeenAt, 0);
   assert.equal(patch.fairyWaitUntil, 777);
   assert.equal(Object.hasOwn(patch, 'lastRewardCapturedAt'), false);
 });
