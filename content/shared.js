@@ -147,22 +147,40 @@
     return Number.isFinite(exp) && exp >= 0 && exp <= MAX_REAPER_EXP ? exp : null;
   }
 
-  // Current experimental model for the Жнец reward XP. Low ranks are excluded
-  // on purpose because the collected data suggests a separate beginner rule.
+  // Experimental Жнец reward XP model. Keep the formulas rank-specific until
+  // more data proves a single universal rule. Only the two ranks with enough
+  // collected observations are modelled; all other ranks intentionally return
+  // null so historical samples do not get a misleading expected value.
+  //
+  // Опытный Травник: uses the raw RESOURCES order (0..6).
+  //   raw = quantity * (resourceIndex + 2) / 5
+  //
+  // Опытный Гербологист: uses the progression tier table where Мандрагора and
+  // Зеленая Массивка share tier 3.
+  //   raw = quantity * (resourceTier + 1) / 6
+  //
   // Keep the fractional value: comparing it with the actual integer reward is
   // useful for reconstructing the server-side random/rounding behaviour.
   function expectedProfessionalExp(resourceId, quantity, rankKey) {
     const qty = Number(quantity);
     if (!Number.isFinite(qty) || qty <= 0) return null;
 
-    const tier = REAPER_RESOURCE_TIERS[String(resourceId)];
-    if (!Number.isInteger(tier)) return null;
-
+    const id = String(resourceId);
     const rank = canonicalReaperRank(rankKey);
-    const rankIndex = rank ? REAPER_RANKS.indexOf(rank) : -1;
-    if (rankIndex < 3) return null;
+    let raw = null;
 
-    const raw = qty * (tier + 6 - rankIndex) / (rankIndex + 1);
+    if (rank === 'Опытный Травник') {
+      const resourceIndex = RESOURCES.findIndex((resource) => resource.id === id);
+      if (resourceIndex < 0) return null;
+      raw = qty * (resourceIndex + 2) / 5;
+    } else if (rank === 'Опытный Гербологист') {
+      const tier = REAPER_RESOURCE_TIERS[id];
+      if (!Number.isInteger(tier)) return null;
+      raw = qty * (tier + 1) / 6;
+    } else {
+      return null;
+    }
+
     const capped = Math.min(MAX_REAPER_EXP, Math.max(1, raw));
     return Math.round(capped * 10000) / 10000;
   }

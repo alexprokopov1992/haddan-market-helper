@@ -112,17 +112,27 @@ test('reaperProgress derives current and next Жнец rank from total professio
   assert.equal(shared.reaperProgress(450000).maxRank, true);
 });
 
-test('expectedProfessionalExp applies the experimental mid/high-rank formula', () => {
-  assert.equal(shared.expectedProfessionalExp('1044', 39, 'Опытный Гербологист'), 6.5);
-  assert.equal(shared.expectedProfessionalExp('5901', 11, 'опытный гербологист'), 5.5);
-  assert.equal(shared.expectedProfessionalExp('5903', 6, 'Опытный Гербологист'), 5);
-  assert.equal(shared.expectedProfessionalExp('5904', 5, 'Опытный Гербологист'), 5);
+test('expectedProfessionalExp uses the raw resource index for Опытный Травник', () => {
   assert.equal(shared.expectedProfessionalExp('1044', 19, 'Опытный Травник'), 7.6);
-  assert.equal(shared.expectedProfessionalExp('1045', 16, 'Опытный Гербологист'), 10);
+  assert.equal(shared.expectedProfessionalExp('5901', 9, 'Опытный Травник'), 7.2);
+  assert.equal(shared.expectedProfessionalExp('1045', 8, 'Опытный Травник'), 8);
+  assert.equal(shared.expectedProfessionalExp('5902', 9, 'Опытный Травник'), 10);
+  assert.equal(shared.expectedProfessionalExp('5903', 6, 'Опытный Травник'), 8.4);
 });
 
-test('expectedProfessionalExp leaves low ranks unmodelled', () => {
+test('expectedProfessionalExp uses progression tiers for Опытный Гербологист', () => {
+  assert.equal(shared.expectedProfessionalExp('1044', 39, 'Опытный Гербологист'), 6.5);
+  assert.equal(shared.expectedProfessionalExp('5901', 11, 'опытный гербологист'), 5.5);
+  assert.equal(shared.expectedProfessionalExp('1045', 16, 'Опытный Гербологист'), 10);
+  assert.equal(shared.expectedProfessionalExp('5902', 9, 'Опытный Гербологист'), 6);
+  assert.equal(shared.expectedProfessionalExp('5903', 6, 'Опытный Гербологист'), 5);
+  assert.equal(shared.expectedProfessionalExp('5904', 5, 'Опытный Гербологист'), 5);
+});
+
+test('expectedProfessionalExp leaves unconfirmed ranks unmodelled', () => {
   assert.equal(shared.expectedProfessionalExp('1044', 13, 'Новичок'), null);
   assert.equal(shared.expectedProfessionalExp('1044', 3, 'Косарь'), null);
   assert.equal(shared.expectedProfessionalExp('1044', 4, 'Травник'), null);
+  assert.equal(shared.expectedProfessionalExp('1044', 10, 'Гербалист'), null);
+  assert.equal(shared.expectedProfessionalExp('1044', 10, 'Хранитель Полян'), null);
 });

@@ -1,3 +1,11 @@
+## 0.6.62
+
+- Split the experimental `expectedExp` model by confirmed Жнец rank instead of forcing one universal formula.
+- `Опытный Травник` now uses the raw `RESOURCES` index: `quantity * (resourceIndex + 2) / 5`.
+- `Опытный Гербологист` keeps the progression-tier model: `quantity * (resourceTier + 1) / 6`.
+- Other ranks now receive `expectedExp: null` until their formulas are supported by enough observations.
+- Existing stored samples are automatically recalculated on startup, so 0.6.61 values are corrected without clearing the dataset.
+
 ## 0.6.61
 
 - Added experimental formula output `expectedExp` to every stored Жнец XP sample.
