@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.40
+
+- Restored proper UTF-8 Russian text and regex literals in `content/automation.js`.
+- Fixes mojibake statuses such as `Р‘РѕС‚ Р°РєС‚РёРІРµРЅ...` and restores Fairy/battle text detection.
+
 ## 0.6.39
 
 - Added recovery when XP is already saved but Haddan closes the reward window before the extension observes `Спасибо.`.
