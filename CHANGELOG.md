@@ -1,3 +1,9 @@
+## 0.6.60
+
+- START now always begins a clean runtime session and clears inherited Fairy cooldowns, battle timers, reward/ACK locks, choice locks, CAPTCHA pause timestamps and other transient state.
+- Switching Haddan characters no longer carries the previous character's Fairy wait timer into the new START session.
+- STOP keeps the same full transient-state reset semantics.
+
 ## 0.6.59
 
 - Added a 60-second continuous-battle watchdog. If the real Haddan battle interface remains active for more than one minute, the extension reloads the entire Haddan tab rather than only an iframe.

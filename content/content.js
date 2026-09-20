@@ -276,25 +276,53 @@
       await chrome.storage.local.set({
         [BOT_RUNTIME_KEY]: {
           ...current,
+          // A new START is a new character/session boundary. Never inherit a
+          // Fairy cooldown, reward transaction or battle timer from a previous
+          // character that happened to use the same extension storage.
+          fairyWaitUntil: 0,
+          fairyWaitKind: '',
+          fairyCooldownMinDocumentStartedAt: 0,
+          fairyCooldownTransitionUntil: 0,
+          dialogInitRecoveryUntil: 0,
           pendingReward: false,
           pendingRewardSince: 0,
           pendingRewardResource: '',
           pendingRewardResourceId: '',
           pendingRewardQuantity: 0,
           pendingRewardRankKey: '',
+          latestFairyChoiceDocumentStartedAt: 0,
+          latestFairyActionableChoiceDocumentStartedAt: 0,
+          latestFairyActionableChoiceFrameKey: '',
+          latestFairyActionableChoiceSignature: '',
+          fairyChoiceActiveUntil: 0,
           rewardChoiceAt: 0,
           rewardChoiceDocumentStartedAt: 0,
-          rewardAcknowledgingUntil: 0,
-          rewardAckStartedAt: 0,
+          rewardChoiceFrameKey: '',
           lastRewardCapturedAt: 0,
           lastRewardCapturedExp: null,
           lastRewardCapturedResourceId: '',
           lastRewardCapturedQuantity: 0,
+          rewardAcknowledgingUntil: 0,
+          rewardAckScheduledAt: 0,
+          rewardAckStartedAt: 0,
+          rewardAckFrameKey: '',
+          rewardAckDocumentStartedAt: 0,
+          rewardThanksSeenAt: 0,
+          rewardSurfaceLastSeenAt: 0,
           battleExpectedUntil: 0,
+          battleStartRequestedAt: 0,
+          battleStartRequestFrameKey: '',
+          battleStartRequestDocumentStartedAt: 0,
+          battleStartAttempts: 0,
           battleActive: false,
+          battleStartedAt: 0,
+          battleReloadingUntil: 0,
           battleRecoveryLastClickAt: 0,
           battleRecoveryAttempts: 0,
-          fairyCooldownTransitionUntil: 0
+          pauseReason: '',
+          captchaDetectedAt: 0,
+          captchaLastSeenAt: 0,
+          captchaSignalAt: 0
         }
       });
     } catch (e) {
@@ -350,8 +378,14 @@
 
     botStartEl.addEventListener('click', async () => {
       botStartEl.disabled = true;
+
+      // START explicitly begins a fresh runtime session. This is especially
+      // important after switching characters: chrome.storage.local is shared
+      // by the extension, so a cooldown/battle deadline from the previous
+      // character must not survive into the new one.
+      await clearTransientAutomationRuntime();
       await chrome.storage.local.set({
-        [BOT_STATUS_KEY]: { text: 'Жнец: читаю профиль перед START…', ts: Date.now() }
+        [BOT_STATUS_KEY]: { text: 'Жнец: новый сеанс · читаю профиль перед START…', ts: Date.now() }
       });
 
       const freshProfile = await refreshReaperProfile({ startSession: true });
